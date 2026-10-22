@@ -1,347 +1,330 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
-<html>
+<!DOCTYPE html>
+<html lang="ru">
 <head>
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-  <meta http-equiv="Content-Style-Type" content="text/css">
-  <title></title>
-  <meta name="Generator" content="Cocoa HTML Writer">
-  <meta name="CocoaVersion" content="2575.7">
-  <style type="text/css">
-    p.p1 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px Helvetica; -webkit-text-stroke: #000000}
-    p.p2 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px Helvetica; -webkit-text-stroke: #000000; min-height: 14.0px}
-    span.s1 {font-kerning: none}
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Учет расходов по чекам</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Иконки FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 </head>
-<body>
-<p class="p1"><span class="s1">&lt;!DOCTYPE html&gt;</span></p>
-<p class="p1"><span class="s1">&lt;html lang="ru"&gt;</span></p>
-<p class="p1"><span class="s1">&lt;head&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;meta charset="UTF-8"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;meta name="viewport" content="width=device-width, initial-scale=1.0"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;title&gt;Учет расходов по чекам&lt;/title&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;!-- Tailwind CSS --&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;script src="https://cdn.tailwindcss.com"&gt;&lt;/script&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;!-- Chart.js --&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;script src="https://cdn.jsdelivr.net/npm/chart.js"&gt;&lt;/script&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;!-- Иконки FontAwesome --&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;meta name="apple-mobile-web-app-capable" content="yes"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"&gt;</span></p>
-<p class="p1"><span class="s1">&lt;/head&gt;</span></p>
-<p class="p1"><span class="s1">&lt;body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen pb-12"&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;!-- Экран авторизации --&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;div id="auth-screen" class="fixed inset-0 bg-slate-900 z-50 flex items-center justify-center p-4 hidden"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;h2 class="text-2xl font-bold text-slate-900 mb-2 text-center"&gt;Вход в кошелек&lt;/h2&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;p class="text-xs text-slate-500 mb-6 text-center"&gt;Ваши чеки и финансы под защитой Firebase&lt;/p&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;div id="auth-error" class="bg-red-50 text-red-600 text-xs p-3 rounded-lg mb-4 hidden"&gt;&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;input type="email" id="auth-email" placeholder="Email" class="w-full border border-slate-200 rounded-xl px-4 py-3 mb-3 text-sm focus:outline-none focus:border-blue-500"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;input type="password" id="auth-password" placeholder="Пароль" class="w-full border border-slate-200 rounded-xl px-4 py-3 mb-4 text-sm focus:outline-none focus:border-blue-500"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;button onclick="handleAuth()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition text-sm mb-3"&gt;Войти / Регистрация&lt;/button&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/div&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;!-- Экран ввода API-ключа (если еще не привязан) --&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;div id="apikey-screen" class="fixed inset-0 bg-slate-900 z-40 flex items-center justify-center p-4 hidden"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;h2 class="text-xl font-bold text-slate-900 mb-2 text-center"&gt;Привязка Gemini API&lt;/h2&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;p class="text-xs text-slate-500 mb-4 text-center"&gt;Введите ваш личный ключ из Google AI Studio. Он надежно сохранится в вашей базе данных и не попадет в Git.&lt;/p&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;input type="text" id="user-gemini-key" placeholder="AQ.Ab8RN6..." class="w-full border border-slate-200 rounded-xl px-4 py-3 mb-4 text-sm focus:outline-none focus:border-blue-500 font-mono"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;button onclick="saveUserApiKey()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 rounded-xl transition text-sm"&gt;Сохранить ключ&lt;/button&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/div&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;!-- Основной интерфейс --&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;div id="app-screen" class="max-w-md mx-auto p-4 hidden"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;!-- Шапка --&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;header class="flex justify-between items-center my-4"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;div&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>&lt;h1 class="text-xl font-extrabold text-slate-900"&gt;Мои Чеки &amp; AI&lt;/h1&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>&lt;p class="text-xs text-slate-500" id="user-email-display"&gt;&lt;/p&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;div class="flex items-center gap-3"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>&lt;button onclick="openSettings()" class="text-slate-400 hover:text-blue-600 text-sm" title="Настройки API ключа"&gt;&lt;i class="fa-solid fa-key"&gt;&lt;/i&gt;&lt;/button&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>&lt;button onclick="logout()" class="text-slate-400 hover:text-red-500 text-sm" title="Выйти"&gt;&lt;i class="fa-solid fa-right-from-bracket"&gt;&lt;/i&gt;&lt;/button&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;/header&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;!-- Кнопка добавления чека --&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div class="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-5 text-white shadow-lg mb-6"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;h2 class="font-bold text-lg mb-1"&gt;Новый чек&lt;/h2&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;p class="text-xs text-blue-100 mb-4"&gt;Сфотографируйте чек, и ИИ разнесет всё по категориям.&lt;/p&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;label class="block w-full bg-white text-blue-600 hover:bg-blue-50 font-semibold text-center py-3 rounded-xl cursor-pointer transition shadow-sm text-sm"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>&lt;i class="fa-solid fa-camera mr-2"&gt;&lt;/i&gt; Сделать фото / Загрузить чек</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>&lt;input type="file" accept="image/*" capture="environment" id="receipt-input" class="hidden" onchange="processReceipt(event)"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;/label&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;/div&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;!-- Прелоадер --&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div id="loading-box" class="bg-white rounded-2xl p-6 text-center shadow-sm mb-6 hidden"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mb-3"&gt;&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;p class="text-sm font-medium text-slate-700"&gt;ИИ анализирует чек и категории...&lt;/p&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;/div&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;!-- Дашборд --&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div class="bg-white rounded-2xl p-5 shadow-sm mb-6"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;div class="flex justify-between items-center mb-4"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>&lt;h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider"&gt;Траты за всё время&lt;/h3&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>&lt;span id="total-sum" class="text-lg font-extrabold text-blue-600"&gt;0 ₽&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;div class="relative h-48 flex justify-center items-center"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>&lt;canvas id="expensesChart"&gt;&lt;/canvas&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;/div&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;!-- История --&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div class="bg-white rounded-2xl p-5 shadow-sm"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider mb-4"&gt;История позиций&lt;/h3&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;div id="items-list" class="space-y-3"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>&lt;p class="text-xs text-slate-400 text-center py-4"&gt;Пока нет сохраненных чеков&lt;/p&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/div&gt;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;!-- Логика приложения --&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;script type="module"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, getDoc, setDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>// ================= CONFIGS =================</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>const firebaseConfig = {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>apiKey: "AIzaSyBtzjFba5Ho2jORrSi5GKvucaDNzCCAh5g",</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>authDomain: "countme-a0e8a.firebaseapp.com",</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>projectId: "countme-a0e8a",</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>storageBucket: "countme-a0e8a.firebasestorage.app",</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>messagingSenderId: "900011386839",</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>appId: "1:900011386839:web:be2e211eaccfdee5d60d92",</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>measurementId: "G-8D4V6HF347"</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>};</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>// Обратите внимание: в коде БОЛЬШЕ НЕТ глобального GEMINI_API_KEY. Он берется из базы для каждого юзера!</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>// ===========================================</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>const app = initializeApp(firebaseConfig);</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>const auth = getAuth(app);</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>const db = getFirestore(app);</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>let currentUser = null;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>let currentUserApiKey = "";</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>let chartInstance = null;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>let allItems = [];</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>const categories = ['Еда', 'Вкусняшки (излишество)', 'Средства гигиены', 'Быт', 'Другое'];</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>window.handleAuth = async function() {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>const email = document.getElementById('auth-email').value;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>const password = document.getElementById('auth-password').value;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>const errBox = document.getElementById('auth-error');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>errBox.classList.add('hidden');</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>try {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>await signInWithEmailAndPassword(auth, email, password);</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>} catch (e) {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>try {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>await createUserWithEmailAndPassword(auth, email, password);</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>} catch (err) {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>errBox.innerText = err.message;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>errBox.classList.remove('hidden');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>}</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>}</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>};</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>window.logout = function() {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>signOut(auth);</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>};</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>onAuthStateChanged(auth, async (user) =&gt; {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>currentUser = user;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>if (user) {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>document.getElementById('auth-screen').classList.add('hidden');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>document.getElementById('user-email-display').innerText = user.email;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>// Проверяем, есть ли у пользователя сохраненный API-ключ в базе</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>const userDocRef = doc(db, `users/${user.uid}`);</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>const userDoc = await getDoc(userDocRef);</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>if (userDoc.exists() &amp;&amp; userDoc.data().geminiApiKey) {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>currentUserApiKey = userDoc.data().geminiApiKey;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>document.getElementById('apikey-screen').classList.add('hidden');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>document.getElementById('app-screen').classList.remove('hidden');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>loadData();</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>} else {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>// Если ключа нет — показываем окно ввода</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>document.getElementById('apikey-screen').classList.remove('hidden');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>}</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>} else {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>document.getElementById('auth-screen').classList.remove('hidden');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>document.getElementById('apikey-screen').classList.add('hidden');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>document.getElementById('app-screen').classList.add('hidden');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>}</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>});</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>window.saveUserApiKey = async function() {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>const keyInput = document.getElementById('user-gemini-key').value.trim();</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>if (!keyInput) {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>alert('Введите ключ!');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>return;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>}</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>// Сохраняем ключ в базу данных Firestore в документ пользователя</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>await setDoc(doc(db, `users/${currentUser.uid}`), { geminiApiKey: keyInput }, { merge: true });</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>currentUserApiKey = keyInput;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>document.getElementById('apikey-screen').classList.add('hidden');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>document.getElementById('app-screen').classList.remove('hidden');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>loadData();</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>};</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>window.openSettings = function() {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>document.getElementById('user-gemini-key').value = currentUserApiKey;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>document.getElementById('apikey-screen').classList.remove('hidden');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>};</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>function fileToBase64(file) {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>return new Promise((resolve, reject) =&gt; {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>const reader = new FileReader();</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>reader.readAsDataURL(file);</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>reader.onload = () =&gt; resolve(reader.result.split(',')[1]);</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>reader.onerror = error =&gt; reject(error);</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>});</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>}</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>window.processReceipt = async function(event) {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>const file = event.target.files[0];</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>if (!file) return;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>document.getElementById('loading-box').classList.remove('hidden');</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>try {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>const base64Image = await fileToBase64(file);</span></p>
-<p class="p2"><span class="s1"><span class="Apple-converted-space">                </span></span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>const prompt = `Распознай все товары с этого чека. Для каждого товара укажи название, цену (число) и распредели строго по одной из категорий: ["Еда", "Вкусняшки (излишество)", "Средства гигиены", "Быт", "Другое"].</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>Верни ответ ТОЛЬКО в формате валидного JSON-массива без лишнего текста, например:</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>[{"name": "Молоко", "price": 89.50, "category": "Еда"}, {"name": "Чипсы", "price": 120.00, "category": "Вкусняшки (излишество)"}]`;</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${currentUserApiKey}`, {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>method: 'POST',</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>headers: { 'Content-Type': 'application/json' },</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>body: JSON.stringify({</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                        </span>contents: [{</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                            </span>parts: [</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                                </span>{ text: prompt },</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                                </span>{ inlineData: { mimeType: file.type, data: base64Image } }</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                            </span>]</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                        </span>}]</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>})</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>});</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>const data = await response.json();</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>if (data.error) {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>throw new Error(data.error.message);</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>}</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>let textResult = data.candidates[0].content.parts[0].text;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>const items = JSON.parse(textResult);</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>for (let item of items) {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>await addDoc(collection(db, `users/${currentUser.uid}/items`), {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                        </span>name: item.name,</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                        </span>price: Number(item.price),</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                        </span>category: item.category,</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                        </span>date: new Date().toISOString()</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>});</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>}</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>loadData();</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>} catch (err) {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>alert('Ошибка при распознавании чека: ' + err.message);</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>} finally {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>document.getElementById('loading-box').classList.add('hidden');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>event.target.value = '';</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>}</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>};</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>async function loadData() {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>const q = query(collection(db, `users/${currentUser.uid}/items`), orderBy('date', 'desc'));</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>const querySnapshot = await getDocs(q);</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>allItems = [];</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>querySnapshot.forEach((docSnap) =&gt; {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>allItems.push({ id: docSnap.id, ...docSnap.data() });</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>});</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>renderDashboard();</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>renderList();</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>}</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>function renderDashboard() {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>let total = allItems.reduce((sum, item) =&gt; sum + (Number(item.price) || 0), 0);</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>document.getElementById('total-sum').innerText = total.toFixed(2) + ' ₽';</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>let catTotals = {};</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>categories.forEach(cat =&gt; catTotals[cat] = 0);</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>allItems.forEach(item =&gt; {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>if (catTotals[item.category] !== undefined) {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>catTotals[item.category] += Number(item.price) || 0;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>} else {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>catTotals['Другое'] = (catTotals['Другое'] || 0) + (Number(item.price) || 0);</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>}</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>});</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>const ctx = document.getElementById('expensesChart').getContext('2d');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>if (chartInstance) chartInstance.destroy();</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>chartInstance = new Chart(ctx, {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>type: 'doughnut',</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>data: {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>labels: Object.keys(catTotals),</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>datasets: [{</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                        </span>data: Object.values(catTotals),</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                        </span>backgroundColor: ['#3b82f6', '#ec4899', '#10b981', '#f59e0b', '#64748b']</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>}]</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>},</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>options: {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>responsive: true,</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>maintainAspectRatio: false,</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } }</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>}</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>});</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>}</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>function renderList() {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>const listEl = document.getElementById('items-list');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>if (allItems.length === 0) {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>listEl.innerHTML = `&lt;p class="text-xs text-slate-400 text-center py-4"&gt;Пока нет сохраненных чеков&lt;/p&gt;`;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>return;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>}</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>listEl.innerHTML = allItems.map(item =&gt; `</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>&lt;div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl text-sm"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>&lt;div class="flex-1 pr-2"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                        </span>&lt;p class="font-medium text-slate-800"&gt;${item.name}&lt;/p&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                        </span>&lt;div class="flex items-center gap-2 mt-1"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                            </span>&lt;span class="font-bold text-slate-900"&gt;${item.price} ₽&lt;/span&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                            </span>&lt;select onchange="updateCategory('${item.id}', this.value)" class="text-xs bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none"&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                                </span>${categories.map(cat =&gt; `&lt;option value="${cat}" ${cat === item.category ? 'selected' : ''}&gt;${cat}&lt;/option&gt;`).join('')}</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                            </span>&lt;/select&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                        </span>&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                    </span>&lt;button onclick="deleteItem('${item.id}')" class="text-slate-300 hover:text-red-500 p-2"&gt;&lt;i class="fa-solid fa-trash-can text-xs"&gt;&lt;/i&gt;&lt;/button&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">                </span>&lt;/div&gt;</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>`).join('');</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>}</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>window.updateCategory = async function(id, newCat) {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>await updateDoc(doc(db, `users/${currentUser.uid}/items`, id), { category: newCat });</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>loadData();</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>};</span></p>
-<p class="p2"><span class="s1"></span><br></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>window.deleteItem = async function(id) {</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>await deleteDoc(doc(db, `users/${currentUser.uid}/items`, id));</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">            </span>loadData();</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>};</span></p>
-<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/script&gt;</span></p>
-<p class="p1"><span class="s1">&lt;/body&gt;</span></p>
-<p class="p1"><span class="s1">&lt;/html&gt;</span></p>
+<body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen pb-12">
+
+    <!-- Экран авторизации -->
+    <div id="auth-screen" class="fixed inset-0 bg-slate-900 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <h2 class="text-2xl font-bold text-slate-900 mb-2 text-center">Вход в кошелек</h2>
+            <p class="text-xs text-slate-500 mb-6 text-center">Ваши чеки и финансы под защитой Firebase</p>
+            <div id="auth-error" class="bg-red-50 text-red-600 text-xs p-3 rounded-lg mb-4 hidden"></div>
+            <input type="email" id="auth-email" placeholder="Email" class="w-full border border-slate-200 rounded-xl px-4 py-3 mb-3 text-sm focus:outline-none focus:border-blue-500">
+            <input type="password" id="auth-password" placeholder="Пароль" class="w-full border border-slate-200 rounded-xl px-4 py-3 mb-4 text-sm focus:outline-none focus:border-blue-500">
+            <button onclick="handleAuth()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition text-sm mb-3">Войти / Регистрация</button>
+        </div>
+    </div>
+
+    <!-- Экран ввода API-ключа (если еще не привязан) -->
+    <div id="apikey-screen" class="fixed inset-0 bg-slate-900 z-40 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <h2 class="text-xl font-bold text-slate-900 mb-2 text-center">Привязка Gemini API</h2>
+            <p class="text-xs text-slate-500 mb-4 text-center">Введите ваш личный ключ из Google AI Studio. Он надежно сохранится в вашей базе данных и не попадет в Git.</p>
+            <input type="text" id="user-gemini-key" placeholder="AQ.Ab8RN6..." class="w-full border border-slate-200 rounded-xl px-4 py-3 mb-4 text-sm focus:outline-none focus:border-blue-500 font-mono">
+            <button onclick="saveUserApiKey()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 rounded-xl transition text-sm">Сохранить ключ</button>
+        </div>
+    </div>
+
+    <!-- Основной интерфейс -->
+    <div id="app-screen" class="max-w-md mx-auto p-4 hidden">
+        <!-- Шапка -->
+        <header class="flex justify-between items-center my-4">
+            <div>
+                <h1 class="text-xl font-extrabold text-slate-900">Мои Чеки & AI</h1>
+                <p class="text-xs text-slate-500" id="user-email-display"></p>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="openSettings()" class="text-slate-400 hover:text-blue-600 text-sm" title="Настройки API ключа"><i class="fa-solid fa-key"></i></button>
+                <button onclick="logout()" class="text-slate-400 hover:text-red-500 text-sm" title="Выйти"><i class="fa-solid fa-right-from-bracket"></i></button>
+            </div>
+        </header>
+
+        <!-- Кнопка добавления чека -->
+        <div class="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-5 text-white shadow-lg mb-6">
+            <h2 class="font-bold text-lg mb-1">Новый чек</h2>
+            <p class="text-xs text-blue-100 mb-4">Сфотографируйте чек, и ИИ разнесет всё по категориям.</p>
+            <label class="block w-full bg-white text-blue-600 hover:bg-blue-50 font-semibold text-center py-3 rounded-xl cursor-pointer transition shadow-sm text-sm">
+                <i class="fa-solid fa-camera mr-2"></i> Сделать фото / Загрузить чек
+                <input type="file" accept="image/*" capture="environment" id="receipt-input" class="hidden" onchange="processReceipt(event)">
+            </label>
+        </div>
+
+        <!-- Прелоадер -->
+        <div id="loading-box" class="bg-white rounded-2xl p-6 text-center shadow-sm mb-6 hidden">
+            <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mb-3"></div>
+            <p class="text-sm font-medium text-slate-700">ИИ анализирует чек и категории...</p>
+        </div>
+
+        <!-- Дашборд -->
+        <div class="bg-white rounded-2xl p-5 shadow-sm mb-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider">Траты за всё время</h3>
+                <span id="total-sum" class="text-lg font-extrabold text-blue-600">0 ₽</span>
+            </div>
+            <div class="relative h-48 flex justify-center items-center">
+                <canvas id="expensesChart"></canvas>
+            </div>
+        </div>
+
+        <!-- История -->
+        <div class="bg-white rounded-2xl p-5 shadow-sm">
+            <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider mb-4">История позиций</h3>
+            <div id="items-list" class="space-y-3">
+                <p class="text-xs text-slate-400 text-center py-4">Пока нет сохраненных чеков</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Логика приложения -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, getDoc, setDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // ================= CONFIGS =================
+        const firebaseConfig = {
+            apiKey: "AIzaSyBtzjFba5Ho2jORrSi5GKvucaDNzCCAh5g",
+            authDomain: "countme-a0e8a.firebaseapp.com",
+            projectId: "countme-a0e8a",
+            storageBucket: "countme-a0e8a.firebasestorage.app",
+            messagingSenderId: "900011386839",
+            appId: "1:900011386839:web:be2e211eaccfdee5d60d92",
+            measurementId: "G-8D4V6HF347"
+        };
+        // Обратите внимание: в коде БОЛЬШЕ НЕТ глобального GEMINI_API_KEY. Он берется из базы для каждого юзера!
+        // ===========================================
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        let currentUser = null;
+        let currentUserApiKey = "";
+        let chartInstance = null;
+        let allItems = [];
+        const categories = ['Еда', 'Вкусняшки (излишество)', 'Средства гигиены', 'Быт', 'Другое'];
+
+        window.handleAuth = async function() {
+            const email = document.getElementById('auth-email').value;
+            const password = document.getElementById('auth-password').value;
+            const errBox = document.getElementById('auth-error');
+            errBox.classList.add('hidden');
+
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+            } catch (e) {
+                try {
+                    await createUserWithEmailAndPassword(auth, email, password);
+                } catch (err) {
+                    errBox.innerText = err.message;
+                    errBox.classList.remove('hidden');
+                }
+            }
+        };
+
+        window.logout = function() {
+            signOut(auth);
+        };
+
+        onAuthStateChanged(auth, async (user) => {
+            currentUser = user;
+            if (user) {
+                document.getElementById('auth-screen').classList.add('hidden');
+                document.getElementById('user-email-display').innerText = user.email;
+
+                // Проверяем, есть ли у пользователя сохраненный API-ключ в базе
+                const userDocRef = doc(db, `users/${user.uid}`);
+                const userDoc = await getDoc(userDocRef);
+
+                if (userDoc.exists() && userDoc.data().geminiApiKey) {
+                    currentUserApiKey = userDoc.data().geminiApiKey;
+                    document.getElementById('apikey-screen').classList.add('hidden');
+                    document.getElementById('app-screen').classList.remove('hidden');
+                    loadData();
+                } else {
+                    // Если ключа нет — показываем окно ввода
+                    document.getElementById('apikey-screen').classList.remove('hidden');
+                }
+            } else {
+                document.getElementById('auth-screen').classList.remove('hidden');
+                document.getElementById('apikey-screen').classList.add('hidden');
+                document.getElementById('app-screen').classList.add('hidden');
+            }
+        });
+
+        window.saveUserApiKey = async function() {
+            const keyInput = document.getElementById('user-gemini-key').value.trim();
+            if (!keyInput) {
+                alert('Введите ключ!');
+                return;
+            }
+
+            // Сохраняем ключ в базу данных Firestore в документ пользователя
+            await setDoc(doc(db, `users/${currentUser.uid}`), { geminiApiKey: keyInput }, { merge: true });
+            currentUserApiKey = keyInput;
+
+            document.getElementById('apikey-screen').classList.add('hidden');
+            document.getElementById('app-screen').classList.remove('hidden');
+            loadData();
+        };
+
+        window.openSettings = function() {
+            document.getElementById('user-gemini-key').value = currentUserApiKey;
+            document.getElementById('apikey-screen').classList.remove('hidden');
+        };
+
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = error => reject(error);
+            });
+        }
+
+        window.processReceipt = async function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            document.getElementById('loading-box').classList.remove('hidden');
+
+            try {
+                const base64Image = await fileToBase64(file);
+                
+                const prompt = `Распознай все товары с этого чека. Для каждого товара укажи название, цену (число) и распредели строго по одной из категорий: ["Еда", "Вкусняшки (излишество)", "Средства гигиены", "Быт", "Другое"].
+                Верни ответ ТОЛЬКО в формате валидного JSON-массива без лишнего текста, например:
+                [{"name": "Молоко", "price": 89.50, "category": "Еда"}, {"name": "Чипсы", "price": 120.00, "category": "Вкусняшки (излишество)"}]`;
+
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${currentUserApiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [
+                                { text: prompt },
+                                { inlineData: { mimeType: file.type, data: base64Image } }
+                            ]
+                        }]
+                    })
+                });
+
+                const data = await response.json();
+                if (data.error) {
+                    throw new Error(data.error.message);
+                }
+
+                let textResult = data.candidates[0].content.parts[0].text;
+                textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
+                const items = JSON.parse(textResult);
+
+                for (let item of items) {
+                    await addDoc(collection(db, `users/${currentUser.uid}/items`), {
+                        name: item.name,
+                        price: Number(item.price),
+                        category: item.category,
+                        date: new Date().toISOString()
+                    });
+                }
+
+                loadData();
+            } catch (err) {
+                alert('Ошибка при распознавании чека: ' + err.message);
+            } finally {
+                document.getElementById('loading-box').classList.add('hidden');
+                event.target.value = '';
+            }
+        };
+
+        async function loadData() {
+            const q = query(collection(db, `users/${currentUser.uid}/items`), orderBy('date', 'desc'));
+            const querySnapshot = await getDocs(q);
+            allItems = [];
+            querySnapshot.forEach((docSnap) => {
+                allItems.push({ id: docSnap.id, ...docSnap.data() });
+            });
+
+            renderDashboard();
+            renderList();
+        }
+
+        function renderDashboard() {
+            let total = allItems.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
+            document.getElementById('total-sum').innerText = total.toFixed(2) + ' ₽';
+
+            let catTotals = {};
+            categories.forEach(cat => catTotals[cat] = 0);
+            allItems.forEach(item => {
+                if (catTotals[item.category] !== undefined) {
+                    catTotals[item.category] += Number(item.price) || 0;
+                } else {
+                    catTotals['Другое'] = (catTotals['Другое'] || 0) + (Number(item.price) || 0);
+                }
+            });
+
+            const ctx = document.getElementById('expensesChart').getContext('2d');
+            if (chartInstance) chartInstance.destroy();
+
+            chartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(catTotals),
+                    datasets: [{
+                        data: Object.values(catTotals),
+                        backgroundColor: ['#3b82f6', '#ec4899', '#10b981', '#f59e0b', '#64748b']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } }
+                }
+            });
+        }
+
+        function renderList() {
+            const listEl = document.getElementById('items-list');
+            if (allItems.length === 0) {
+                listEl.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">Пока нет сохраненных чеков</p>`;
+                return;
+            }
+
+            listEl.innerHTML = allItems.map(item => `
+                <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl text-sm">
+                    <div class="flex-1 pr-2">
+                        <p class="font-medium text-slate-800">${item.name}</p>
+                        <div class="flex items-center gap-2 mt-1">
+                            <span class="font-bold text-slate-900">${item.price} ₽</span>
+                            <select onchange="updateCategory('${item.id}', this.value)" class="text-xs bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none">
+                                ${categories.map(cat => `<option value="${cat}" ${cat === item.category ? 'selected' : ''}>${cat}</option>`).join('')}
+                            </select>
+                        </div>
+                    </div>
+                    <button onclick="deleteItem('${item.id}')" class="text-slate-300 hover:text-red-500 p-2"><i class="fa-solid fa-trash-can text-xs"></i></button>
+                </div>
+            `).join('');
+        }
+
+        window.updateCategory = async function(id, newCat) {
+            await updateDoc(doc(db, `users/${currentUser.uid}/items`, id), { category: newCat });
+            loadData();
+        };
+
+        window.deleteItem = async function(id) {
+            await deleteDoc(doc(db, `users/${currentUser.uid}/items`, id));
+            loadData();
+        };
+    </script>
 </body>
 </html>
