@@ -37,7 +37,7 @@
         </div>
     </div>
 
-    <!-- Модальное окно подтверждения чека и заметок -->
+    <!-- Модальное окно подтверждения чека и голосовых заметок -->
     <div id="receipt-modal" class="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 hidden">
         <div class="bg-white rounded-2xl p-5 w-full max-w-sm shadow-2xl max-h-[90vh] overflow-y-auto">
             <h3 class="font-bold text-slate-800 text-base mb-3">Подтверждение чека</h3>
@@ -47,10 +47,15 @@
                 <img id="modal-img-preview" src="" alt="Чек" class="max-h-full object-contain">
             </div>
 
-            <!-- Дополнительное поле для промпта -->
+            <!-- Дополнительное поле для промпта + микрофон -->
             <div class="mb-4">
-                <label class="block text-xs font-semibold text-slate-600 mb-1">Заметка / Инструкция для ИИ (необязательно):</label>
-                <textarea id="modal-prompt-note" rows="2" placeholder="Например: 'из стоимости виллы вычти 17000' или 'не учитывай кока-колу'" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500"></textarea>
+                <div class="flex justify-between items-center mb-1">
+                    <label class="block text-xs font-semibold text-slate-600">Заметка / Инструкция для ИИ:</label>
+                    <button type="button" onclick="toggleModalVoiceRecording()" id="modal-mic-btn" class="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
+                        <i class="fa-solid fa-microphone"></i> <span id="modal-mic-text">Надиктовать</span>
+                    </button>
+                </div>
+                <textarea id="modal-prompt-note" rows="2" placeholder="Например: 'из стоимости виллы вычти 17000' или голосом..." class="w-full border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500"></textarea>
             </div>
 
             <div class="flex gap-2">
@@ -75,9 +80,9 @@
         </header>
 
         <!-- Блок добавления чека -->
-        <div class="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-5 text-white shadow-lg mb-6">
+        <div class="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-5 text-white shadow-lg mb-4">
             <h2 class="font-bold text-lg mb-1">Новый чек</h2>
-            <p class="text-xs text-blue-100 mb-3">Выберите валюту, сфотографируйте или загрузите чек из галереи.</p>
+            <p class="text-xs text-blue-100 mb-3">Выберите валюту, сфотографируйте или загрузите чек.</p>
             
             <div class="mb-3">
                 <label class="block text-xs text-blue-100 mb-1">Валюта чека:</label>
@@ -98,6 +103,17 @@
             </label>
         </div>
 
+        <!-- Блок голосового ввода без чека -->
+        <div class="bg-white rounded-2xl p-4 shadow-sm mb-6 border border-slate-200/60 flex items-center justify-between">
+            <div>
+                <h3 class="font-bold text-slate-800 text-xs uppercase tracking-wider">Голосовой ввод трат</h3>
+                <p class="text-[11px] text-slate-400">Например: «Ипотека 59000 рублей ВТБ»</p>
+            </div>
+            <button onclick="toggleVoiceExpenseRecording()" id="voice-expense-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs font-semibold transition flex items-center gap-2">
+                <i class="fa-solid fa-microphone"></i> <span id="voice-expense-text">Записать</span>
+            </button>
+        </div>
+
         <!-- Управление категориями -->
         <div class="bg-white rounded-2xl p-4 shadow-sm mb-6">
             <h3 class="font-bold text-slate-800 text-xs uppercase tracking-wider mb-2">Ваши категории трат</h3>
@@ -111,7 +127,7 @@
         <!-- Прелоадер -->
         <div id="loading-box" class="bg-white rounded-2xl p-6 text-center shadow-sm mb-6 hidden">
             <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mb-3"></div>
-            <p class="text-sm font-medium text-slate-700">ИИ анализирует чек с учетом ваших заметок (модель 3.8)...</p>
+            <p id="loading-text" class="text-sm font-medium text-slate-700">ИИ анализирует запрос (модель 3.8)...</p>
         </div>
 
         <!-- Дашборд и аналитика -->
@@ -122,13 +138,11 @@
                     <span id="total-sum" class="text-lg font-extrabold text-blue-600">0</span>
                 </div>
 
-                <!-- Вкладки переключения режимов (Категории / Магазины) -->
                 <div class="flex bg-slate-100 p-1 rounded-xl">
                     <button id="tab-mode-category" onclick="setDashboardMode('category')" class="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-white text-slate-900 shadow-sm transition">По категориям</button>
                     <button id="tab-mode-shop" onclick="setDashboardMode('shop')" class="flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-500 transition">По магазинам</button>
                 </div>
 
-                <!-- Селекторы периода, типа графика и валюты -->
                 <div class="grid grid-cols-3 gap-2">
                     <select id="period-filter" onchange="renderDashboard()" class="text-xs bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-slate-700 focus:outline-none">
                         <option value="all">За всё время</option>
@@ -153,7 +167,6 @@
                     </select>
                 </div>
 
-                <!-- Блок фильтрации по конкретным элементам (чекбоксы) -->
                 <div class="mt-2">
                     <div class="flex justify-between items-center mb-1">
                         <span class="text-[11px] font-bold text-slate-500 uppercase">Фильтр для графиков:</span>
@@ -173,9 +186,9 @@
 
         <!-- История чеков -->
         <div class="bg-white rounded-2xl p-5 shadow-sm">
-            <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider mb-4">История чеков</h3>
+            <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider mb-4">История чеков и трат</h3>
             <div id="receipts-list" class="space-y-3">
-                <p class="text-xs text-slate-400 text-center py-4">Пока нет сохраненных чеков</p>
+                <p class="text-xs text-slate-400 text-center py-4">Пока нет сохраненных записей</p>
             </div>
         </div>
     </div>
@@ -210,6 +223,12 @@
         let pendingFile = null;
         let dashboardMode = 'category';
         let selectedFilterKeys = new Set();
+
+        // Переменные для записи аудио (MediaRecorder)
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecordingModalVoice = false;
+        let isRecordingVoiceExpense = false;
 
         window.handleAuth = async function() {
             const email = document.getElementById('auth-email').value;
@@ -299,6 +318,196 @@
             return { RUB: 1 };
         }
 
+        // Универсальная функция запроса к Gemini API с автоповтором (2 раза каждые 5 сек)
+        async function callGeminiWithRetry(payload, maxRetries = 2, delaySec = 5) {
+            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+                try {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${currentUserApiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const data = await response.json();
+                    if (data.error) {
+                        throw new Error(data.error.message);
+                    }
+                    return data;
+                } catch (err) {
+                    if (attempt === maxRetries) {
+                        throw err; // Исчерпали все попытки
+                    }
+                    // Ждем delaySec секунд перед повтором
+                    await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
+                }
+            }
+        }
+
+        // Запись аудио с микрофона
+        async function startAudioRecording() {
+            audioChunks = [];
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.ondataavailable = event => {
+                if (event.data.size > 0) audioChunks.push(event.data);
+            };
+            mediaRecorder.start();
+        }
+
+        async function stopAudioRecording() {
+            return new Promise((resolve) => {
+                if (!mediaRecorder) {
+                    resolve(null);
+                    return;
+                }
+                mediaRecorder.onstop = async () => {
+                    // Останавливаем треки микрофона
+                    mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        const base64Audio = reader.result.split(',')[1];
+                        resolve({ base64: base64Audio, mimeType: audioBlob.type || 'audio/webm' });
+                    };
+                    reader.readAsDataURL(audioBlob);
+                };
+                mediaRecorder.stop();
+            });
+        }
+
+        // Голосовая заметка для модального окна чека
+        window.toggleModalVoiceRecording = async function() {
+            const micBtn = document.getElementById('modal-mic-btn');
+            const micText = document.getElementById('modal-mic-text');
+            const textarea = document.getElementById('modal-prompt-note');
+
+            if (!isRecordingModalVoice) {
+                try {
+                    await startAudioRecording();
+                    isRecordingModalVoice = true;
+                    micBtn.classList.add('text-red-600');
+                    micText.innerText = 'Остановить запись...';
+                } catch (err) {
+                    alert('Не удалось получить доступ к микрофону: ' + err.message);
+                }
+            } else {
+                isRecordingModalVoice = false;
+                micBtn.classList.remove('text-red-600');
+                micText.innerText = 'Надиктовать';
+                
+                document.getElementById('loading-text').innerText = 'Распознаем голосовую заметку...';
+                document.getElementById('loading-box').classList.remove('hidden');
+
+                const audioData = await stopAudioRecording();
+                if (audioData) {
+                    try {
+                        const payload = {
+                            contents: [{
+                                parts: [
+                                    { text: "Прослушай это аудиосообщение и дословно (или близко к тексту) расшифруй инструкцию/заметку пользователя для чека на русском языке. Верни ТОЛЬКО текст расшифровки без лишних фраз." },
+                                    { inlineData: { mimeType: audioData.mimeType, data: audioData.base64 } }
+                                ]
+                            }]
+                        };
+                        const data = await callGeminiWithRetry(payload);
+                        const transcript = data.candidates[0].content.parts[0].text.trim();
+                        textarea.value = transcript;
+                    } catch (err) {
+                        alert('Ошибка расшифровки голоса: ' + err.message);
+                    }
+                }
+                document.getElementById('loading-box').classList.add('hidden');
+            }
+        };
+
+        // Голосовой ввод трат (без чека)
+        window.toggleVoiceExpenseRecording = async function() {
+            const btn = document.getElementById('voice-expense-btn');
+            const textSpan = document.getElementById('voice-expense-text');
+
+            if (!isRecordingVoiceExpense) {
+                if (userCategories.length === 0) {
+                    alert('Сначала добавьте хотя бы одну категорию трат!');
+                    return;
+                }
+                try {
+                    await startAudioRecording();
+                    isRecordingVoiceExpense = true;
+                    btn.className = "bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-xl text-xs font-semibold transition flex items-center gap-2 animate-pulse";
+                    textSpan.innerText = 'Слушаю... (Стоп)';
+                } catch (err) {
+                    alert('Не удалось получить доступ к микрофону: ' + err.message);
+                }
+            } else {
+                isRecordingVoiceExpense = false;
+                btn.className = "bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs font-semibold transition flex items-center gap-2";
+                textSpan.innerText = 'Записать';
+
+                document.getElementById('loading-text').innerText = 'ИИ обрабатывает голосовую трату...';
+                document.getElementById('loading-box').classList.remove('hidden');
+
+                const audioData = await stopAudioRecording();
+                if (audioData) {
+                    try {
+                        const prompt = `Прослушай голосовое сообщение пользователя с описанием финансовой траты. 
+                        Текущая дата: 2026-10-22. Доступные пользователю категории: ${JSON.stringify(userCategories)}.
+                        Извлеки данные и верни ТОЛЬКО валидный JSON-объект следующей структуры:
+                        {
+                          "shopName": "Название магазина или банка (например, ВТБ, 7-Eleven)",
+                          "receiptDate": "YYYY-MM-DD",
+                          "items": [
+                            {"originalName": "Описание из речи", "name": "Перевод/Название на русском", "price": число_суммы, "currency": "RUB или THB или VND или IDR или USD или EUR или KZT", "category": "подходящая категория из списка"}
+                          ]
+                        }`;
+
+                        const payload = {
+                            contents: [{
+                                parts: [
+                                    { text: prompt },
+                                    { inlineData: { mimeType: audioData.mimeType, data: audioData.base64 } }
+                                ]
+                            }]
+                        };
+
+                        const data = await callGeminiWithRetry(payload);
+                        let textResult = data.candidates[0].content.parts[0].text;
+                        textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
+                        const parsedData = JSON.parse(textResult);
+
+                        const shopName = parsedData.shopName || "Голосовой ввод";
+                        const receiptDate = parsedData.receiptDate || "2026-10-22";
+                        const items = parsedData.items || [];
+                        const createdAt = new Date().toISOString();
+
+                        for (let item of items) {
+                            const originalPrice = Number(item.price) || 0;
+                            const currency = item.currency || 'RUB';
+                            const historicalRates = await getHistoricalRates(receiptDate);
+                            const rateToRub = historicalRates[currency] ? (1 / historicalRates[currency]) : 1;
+                            const priceInRub = originalPrice * rateToRub;
+
+                            await addDoc(collection(db, `users/${currentUser.uid}/items`), {
+                                name: item.name || item.originalName,
+                                originalName: item.originalName || item.name,
+                                originalPrice: originalPrice,
+                                currency: currency,
+                                priceRub: priceInRub,
+                                category: userCategories.includes(item.category) ? item.category : userCategories[0],
+                                shop: shopName,
+                                receiptDate: receiptDate,
+                                createdAt: createdAt
+                            });
+                        }
+
+                        loadData();
+                    } catch (err) {
+                        alert('Ошибка распознавания голосовой траты: ' + err.message);
+                    }
+                }
+                document.getElementById('loading-box').classList.add('hidden');
+            }
+        };
+
         window.addCategory = async function() {
             const input = document.getElementById('new-category-input');
             const catName = input.value.trim();
@@ -379,6 +588,7 @@
             const userNote = document.getElementById('modal-prompt-note').value.trim();
             
             document.getElementById('receipt-modal').classList.add('hidden');
+            document.getElementById('loading-text').innerText = 'ИИ анализирует чек с учетом заметок (модель 3.8)...';
             document.getElementById('loading-box').classList.remove('hidden');
 
             const selectedCurrency = document.getElementById('receipt-currency').value;
@@ -411,23 +621,16 @@
                   ]
                 }`;
 
-                // Использование актуальной модели gemini-3.8-flash
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${currentUserApiKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{
-                            parts: [
-                                { text: prompt },
-                                { inlineData: { mimeType: file.type, data: base64Image } }
-                            ]
-                        }]
-                    })
-                });
+                const payload = {
+                    contents: [{
+                        parts: [
+                            { text: prompt },
+                            { inlineData: { mimeType: file.type, data: base64Image } }
+                        ]
+                    }]
+                };
 
-                const data = await response.json();
-                if (data.error) throw new Error(data.error.message);
-
+                const data = await callGeminiWithRetry(payload);
                 let textResult = data.candidates[0].content.parts[0].text;
                 textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
                 const parsedData = JSON.parse(textResult);
@@ -459,7 +662,7 @@
 
                 loadData();
             } catch (err) {
-                alert('Ошибка при распознавании чека: ' + err.message);
+                alert('Не удалось распознать чек после нескольких попыток: ' + err.message);
             } finally {
                 pendingFile = null;
                 document.getElementById('loading-box').classList.add('hidden');
@@ -583,10 +786,10 @@
             if (!dateStr) return '';
             const parts = dateStr.split('-');
             if (parts.length === 3) {
-                return `${parts[2]}.${parts[1]}.${parts[0]}`; // ДД.ММ.ГГГГ
+                return `${parts[2]}.${parts[1]}.${parts[0]}`;
             }
             if (parts.length === 2) {
-                return `${parts[1]}.${parts[0]}`; // ММ.ГГГГ
+                return `${parts[1]}.${parts[0]}`;
             }
             return dateStr;
         }
@@ -663,7 +866,7 @@
                     const dateObj = new Date(dateStr);
                     if (isNaN(dateObj)) return;
 
-                    let groupKey = dateStr; // YYYY-MM-DD
+                    let groupKey = dateStr;
                     if (chartType === 'bar_week') {
                         const d = new Date(dateObj);
                         const day = d.getDay();
@@ -671,7 +874,7 @@
                         const monday = new Date(d.setDate(diff));
                         groupKey = monday.toISOString().split('T')[0] + '_week';
                     } else if (chartType === 'bar_month') {
-                        groupKey = dateStr.substring(0, 7) + '-01'; // YYYY-MM-01
+                        groupKey = dateStr.substring(0, 7) + '-01';
                     }
 
                     const priceInTarget = (Number(item.priceRub) || 0) * rubToTargetRate;
@@ -681,16 +884,15 @@
                 const sortedKeys = Object.keys(timeGrouped).sort();
                 const values = sortedKeys.map(k => timeGrouped[k]);
                 
-                // Форматирование дат для меток гистограммы в формат ДД.ММ.ГГГГ
                 const labels = sortedKeys.map(k => {
                     if (chartType === 'bar_week') {
                         const cleanDate = k.replace('_week', '');
                         return formatDateReadable(cleanDate) + ' (нед)';
                     } else if (chartType === 'bar_month') {
                         const parts = k.split('-');
-                        return `${parts[1]}.${parts[0]}`; // ММ.ГГГГ для месяцев
+                        return `${parts[1]}.${parts[0]}`;
                     }
-                    return formatDateReadable(k); // ДД.ММ.ГГГГ для дней
+                    return formatDateReadable(k);
                 });
 
                 chartInstance = new Chart(ctx, {
@@ -737,7 +939,7 @@
         function renderList() {
             const listEl = document.getElementById('receipts-list');
             if (allItems.length === 0) {
-                listEl.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">Пока нет сохраненных чеков</p>`;
+                listEl.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">Пока нет сохраненных записей</p>`;
                 return;
             }
 
@@ -774,7 +976,7 @@
                                     <div class="flex-1 pr-2">
                                         <p class="font-medium text-slate-800">${item.name} <span class="text-[10px] text-slate-400 font-normal">(${item.originalName || item.name})</span></p>
                                         <div class="flex items-center gap-2 mt-1">
-                                            <span class="font-bold text-slate-900">${formatMoney(item.originalPrice)}${item.currency}</span>
+                                            <span class="font-bold text-slate-900">${formatMoney(item.originalPrice)} ${item.currency}</span>
                                             <span class="text-[10px] text-slate-400">(${formatMoney(item.priceRub)} ₽)</span>
                                             <select onchange="updateCategory('${item.id}', this.value)" class="text-[10px] bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-0.5 text-slate-600 focus:outline-none">
                                                 ${userCategories.map(cat => `<option value="${cat}" ${cat === item.category ? 'selected' : ''}>${cat}</option>`).join('')}
