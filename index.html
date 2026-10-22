@@ -61,6 +61,8 @@
                 <select id="receipt-currency" class="w-full bg-white text-slate-800 text-sm font-medium rounded-xl px-3 py-2 border-none focus:outline-none">
                     <option value="RUB">RUB (Российский рубль)</option>
                     <option value="THB" selected>THB (Тайский бат)</option>
+                    <option value="VND">VND (Вьетнамский донг)</option>
+                    <option value="IDR">IDR (Индонезийская рупия - Бали)</option>
                     <option value="USD">USD (Доллар США)</option>
                     <option value="EUR">EUR (Евро)</option>
                     <option value="KZT">KZT (Казахстанский тенге)</option>
@@ -86,7 +88,7 @@
         <!-- Прелоадер -->
         <div id="loading-box" class="bg-white rounded-2xl p-6 text-center shadow-sm mb-6 hidden">
             <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mb-3"></div>
-            <p class="text-sm font-medium text-slate-700">ИИ переводит товары и анализирует чек...</p>
+            <p class="text-sm font-medium text-slate-700">Запрос курса на дату чека и анализ ИИ...</p>
         </div>
 
         <!-- Дашборд и фильтры -->
@@ -108,6 +110,8 @@
                     <select id="dashboard-currency" onchange="renderDashboard()" class="text-xs bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-slate-700 focus:outline-none">
                         <option value="RUB" selected>Отображать в RUB</option>
                         <option value="THB">Отображать в THB</option>
+                        <option value="VND">Отображать в VND</option>
+                        <option value="IDR">Отображать в IDR</option>
                         <option value="USD">Отображать в USD</option>
                         <option value="EUR">Отображать в EUR</option>
                     </select>
@@ -152,7 +156,7 @@
         let chartInstance = null;
         let allItems = [];
         let userCategories = [];
-        let exchangeRates = { RUB: 1 };
+        let ratesCache = {}; // Кэш исторических курсов валют
 
         window.handleAuth = async function() {
             const email = document.getElementById('auth-email').value;
@@ -189,7 +193,6 @@
                     currentUserApiKey = userDoc.data().geminiApiKey;
                     document.getElementById('apikey-screen').classList.add('hidden');
                     document.getElementById('app-screen').classList.remove('hidden');
-                    await fetchRates();
                     loadData();
                 } else {
                     document.getElementById('apikey-screen').classList.remove('hidden');
@@ -210,7 +213,6 @@
 
             document.getElementById('apikey-screen').classList.add('hidden');
             document.getElementById('app-screen').classList.remove('hidden');
-            await fetchRates();
             loadData();
         };
 
@@ -219,16 +221,35 @@
             document.getElementById('apikey-screen').classList.remove('hidden');
         };
 
-        async function fetchRates() {
+        // Получение исторических курсов валют на конкретную дату YYYY-MM-DD относительно RUB
+        async function getHistoricalRates(dateStr) {
+            if (ratesCache[dateStr]) return ratesCache[dateStr];
+            try {
+                // Запрос курса на историческую дату через open.er-api.com
+                const res = await fetch(`https://open.er-api.com/v6/history/${dateStr}`);
+                const data = await res.json();
+                if (data && data.rates) {
+                    // Пересчитываем rates относительно RUB
+                    const rubRate = data.rates['RUB'] || 1;
+                    let adjustedRates = {};
+                    for (let cur in data.rates) {
+                        adjustedRates[cur] = data.rates[cur] / rubRate;
+                    }
+                    ratesCache[dateStr] = adjustedRates;
+                    return adjustedRates;
+                }
+            } catch (e) {
+                console.error('Не удалось загрузить исторический курс, используем текущий', e);
+            }
+
+            // Фоновый fallback на актуальный курс, если исторический недоступен
             try {
                 const res = await fetch('https://open.er-api.com/v6/latest/RUB');
                 const data = await res.json();
-                if (data && data.rates) {
-                    exchangeRates = data.rates;
-                }
-            } catch (e) {
-                console.error('Не удалось загрузить курсы валют', e);
-            }
+                if (data && data.rates) return data.rates;
+            } catch (err) {}
+
+            return { RUB: 1 };
         }
 
         window.addCategory = async function() {
@@ -331,7 +352,9 @@
                 const receiptDate = parsedData.receiptDate || new Date().toISOString().split('T')[0];
                 const items = parsedData.items || [];
 
-                const rateToRub = exchangeRates[selectedCurrency] ? (1 / exchangeRates[selectedCurrency]) : 1;
+                // Получаем курс валют на дату чека
+                const historicalRates = await getHistoricalRates(receiptDate);
+                const rateToRub = historicalRates[selectedCurrency] ? (1 / historicalRates[selectedCurrency]) : 1;
 
                 for (let item of items) {
                     const originalPrice = Number(item.price) || 0;
@@ -344,7 +367,7 @@
                         currency: selectedCurrency,
                         priceRub: priceInRub,
                         category: item.category,
-                        date: receiptDate // Сохраняем дату из чека
+                        receiptDate: receiptDate
                     });
                 }
 
@@ -367,7 +390,7 @@
             }
             renderCategories();
 
-            const q = query(collection(db, `users/${currentUser.uid}/items`), orderBy('date', 'desc'));
+            const q = query(collection(db, `users/${currentUser.uid}/items`), orderBy('receiptDate', 'desc'));
             const querySnapshot = await getDocs(q);
             allItems = [];
             querySnapshot.forEach((docSnap) => {
@@ -384,7 +407,7 @@
 
             const now = new Date();
             return items.filter(item => {
-                const itemDate = new Date(item.date);
+                const itemDate = new Date(item.receiptDate);
                 if (isNaN(itemDate)) return true;
 
                 if (period === 'month') {
@@ -406,18 +429,24 @@
             });
         }
 
-        window.renderDashboard = function() {
+        function formatMoney(amount) {
+            return amount.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        window.renderDashboard = async function() {
             const filteredItems = filterItemsByPeriod(allItems);
             const targetCurrency = document.getElementById('dashboard-currency').value;
             
-            const rubToTargetRate = exchangeRates[targetCurrency] || 1;
+            // Для дашборда берем актуальный курс целевой валюты
+            const latestRates = await getHistoricalRates(new Date().toISOString().split('T')[0]);
+            const rubToTargetRate = latestRates[targetCurrency] || 1;
 
             let totalInTarget = filteredItems.reduce((sum, item) => {
                 const priceRub = Number(item.priceRub) || 0;
                 return sum + (priceRub * rubToTargetRate);
             }, 0);
 
-            document.getElementById('total-sum').innerText = totalInTarget.toFixed(2) + ' ' + targetCurrency;
+            document.getElementById('total-sum').innerText = formatMoney(totalInTarget) + ' ' + targetCurrency;
 
             let catTotals = {};
             userCategories.forEach(cat => catTotals[cat] = 0);
@@ -452,6 +481,15 @@
             });
         }
 
+        function formatDateReadable(dateStr) {
+            if (!dateStr) return '';
+            const parts = dateStr.split('-');
+            if (parts.length === 3) {
+                return `${parts[2]}.${parts[1]}.${parts[0]}`; // ДД.ММ.ГГГГ
+            }
+            return dateStr;
+        }
+
         function renderList() {
             const listEl = document.getElementById('items-list');
             if (allItems.length === 0) {
@@ -464,11 +502,11 @@
                     <div class="flex-1 pr-2">
                         <div class="flex items-center justify-between mb-0.5">
                             <p class="font-medium text-slate-800">${item.name} <span class="text-xs text-slate-400 font-normal">(${item.originalName || item.name})</span></p>
-                            <span class="text-[10px] text-slate-400 bg-slate-200/60 px-1.5 py-0.5 rounded">${item.date || 'Без даты'}</span>
+                            <span class="text-[10px] text-slate-400 bg-slate-200/60 px-1.5 py-0.5 rounded">${formatDateReadable(item.receiptDate)}</span>
                         </div>
                         <div class="flex items-center gap-2 mt-1 flex-wrap">
-                            <span class="font-bold text-slate-900">${item.originalPrice} ${item.currency}</span>
-                            <span class="text-xs text-slate-400">(${Number(item.priceRub).toFixed(2)} ₽)</span>
+                            <span class="font-bold text-slate-900">${formatMoney(item.originalPrice)} ${item.currency}</span>
+                            <span class="text-xs text-slate-400">(${formatMoney(item.priceRub)} ₽)</span>
                             <select onchange="updateCategory('${item.id}', this.value)" class="text-xs bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none">
                                 ${userCategories.map(cat => `<option value="${cat}" ${cat === item.category ? 'selected' : ''}>${cat}</option>`).join('')}
                             </select>
