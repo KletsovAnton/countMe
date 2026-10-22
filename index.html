@@ -54,7 +54,7 @@
         <!-- Блок добавления чека -->
         <div class="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-5 text-white shadow-lg mb-6">
             <h2 class="font-bold text-lg mb-1">Новый чек</h2>
-            <p class="text-xs text-blue-100 mb-3">Выберите валюту чека, сфотографируйте, и ИИ переведет позиции и разнесет их по категориям.</p>
+            <p class="text-xs text-blue-100 mb-3">Выберите валюту чека, сфотографируйте, и ИИ определит магазин, дату, переведет позиции и разнесет их по категориям.</p>
             
             <div class="mb-3">
                 <label class="block text-xs text-blue-100 mb-1">Валюта чека:</label>
@@ -62,9 +62,10 @@
                     <option value="RUB">RUB (Российский рубль)</option>
                     <option value="THB" selected>THB (Тайский бат)</option>
                     <option value="VND">VND (Вьетнамский донг)</option>
-                    <option value="IDR">IDR (Индонезийская рупия)</option>
+                    <option value="IDR">IDR (Индонезийская рупия - Бали)</option>
                     <option value="USD">USD (Доллар США)</option>
                     <option value="EUR">EUR (Евро)</option>
+                    <option value="KZT">KZT (Казахстанский тенге)</option>
                 </select>
             </div>
 
@@ -87,7 +88,7 @@
         <!-- Прелоадер -->
         <div id="loading-box" class="bg-white rounded-2xl p-6 text-center shadow-sm mb-6 hidden">
             <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mb-3"></div>
-            <p class="text-sm font-medium text-slate-700">Запрос курса на дату чека и анализ ИИ...</p>
+            <p class="text-sm font-medium text-slate-700">Определяем магазин, курс и анализируем чек...</p>
         </div>
 
         <!-- Дашборд и фильтры -->
@@ -97,8 +98,8 @@
                     <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider">Дашборд трат</h3>
                     <span id="total-sum" class="text-lg font-extrabold text-blue-600">0</span>
                 </div>
-                <!-- Селекторы периода и валюты дашборда -->
-                <div class="grid grid-cols-2 gap-2">
+                <!-- Селекторы периода, режима и валюты дашборда -->
+                <div class="grid grid-cols-3 gap-2">
                     <select id="period-filter" onchange="renderDashboard()" class="text-xs bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-slate-700 focus:outline-none">
                         <option value="all">За всё время</option>
                         <option value="month" selected>Текущий месяц</option>
@@ -106,13 +107,17 @@
                         <option value="days30">Последние 30 дней</option>
                         <option value="year">Текущий год</option>
                     </select>
+                    <select id="dashboard-mode" onchange="renderDashboard()" class="text-xs bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-slate-700 focus:outline-none">
+                        <option value="category" selected>По категориям</option>
+                        <option value="shop">По магазинам</option>
+                    </select>
                     <select id="dashboard-currency" onchange="renderDashboard()" class="text-xs bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-slate-700 focus:outline-none">
-                        <option value="RUB" selected>Отображать в RUB</option>
-                        <option value="THB">Отображать в THB</option>
-                        <option value="VND">Отображать в VND</option>
-                        <option value="IDR">Отображать в IDR</option>
-                        <option value="USD">Отображать в USD</option>
-                        <option value="EUR">Отображать в EUR</option>
+                        <option value="RUB" selected>RUB</option>
+                        <option value="THB">THB</option>
+                        <option value="VND">VND</option>
+                        <option value="IDR">IDR</option>
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
                     </select>
                 </div>
             </div>
@@ -121,10 +126,10 @@
             </div>
         </div>
 
-        <!-- История -->
+        <!-- История чеков -->
         <div class="bg-white rounded-2xl p-5 shadow-sm">
-            <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider mb-4">История позиций</h3>
-            <div id="items-list" class="space-y-3">
+            <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider mb-4">История чеков</h3>
+            <div id="receipts-list" class="space-y-3">
                 <p class="text-xs text-slate-400 text-center py-4">Пока нет сохраненных чеков</p>
             </div>
         </div>
@@ -155,7 +160,7 @@
         let chartInstance = null;
         let allItems = [];
         let userCategories = [];
-        let ratesCache = {}; // Кэш исторических курсов валют
+        let ratesCache = {};
 
         window.handleAuth = async function() {
             const email = document.getElementById('auth-email').value;
@@ -194,7 +199,7 @@
                     document.getElementById('app-screen').classList.remove('hidden');
                     loadData();
                 } else {
-                    document.getElementById('apikey-screen').classList.remove('hidden');
+                    document.getElementById('apikey-screen').classList.add('hidden');
                 }
             } else {
                 document.getElementById('auth-screen').classList.add('hidden');
@@ -220,15 +225,12 @@
             document.getElementById('apikey-screen').classList.remove('hidden');
         };
 
-        // Получение исторических курсов валют на конкретную дату YYYY-MM-DD относительно RUB
         async function getHistoricalRates(dateStr) {
             if (ratesCache[dateStr]) return ratesCache[dateStr];
             try {
-                // Запрос курса на историческую дату через open.er-api.com
                 const res = await fetch(`https://open.er-api.com/v6/history/${dateStr}`);
                 const data = await res.json();
                 if (data && data.rates) {
-                    // Пересчитываем rates относительно RUB
                     const rubRate = data.rates['RUB'] || 1;
                     let adjustedRates = {};
                     for (let cur in data.rates) {
@@ -237,11 +239,8 @@
                     ratesCache[dateStr] = adjustedRates;
                     return adjustedRates;
                 }
-            } catch (e) {
-                console.error('Не удалось загрузить исторический курс, используем текущий', e);
-            }
+            } catch (e) {}
 
-            // Фоновый fallback на актуальный курс, если исторический недоступен
             try {
                 const res = await fetch('https://open.er-api.com/v6/latest/RUB');
                 const data = await res.json();
@@ -313,15 +312,17 @@
             try {
                 const base64Image = await fileToBase64(file);
                 
-                const prompt = `Распознай дату чека (в формате YYYY-MM-DD, если даты нет на чеке, верни сегодняшнюю дату) и все товары с этого чека. 
+                const prompt = `Распознай чек. Учти следующие правила для даты: если указан год по буддийскому календарю (например, 2569), переведи его в григорианский (вычти 543 года), чтобы получился формат YYYY-MM-DD. Если даты нет, верни сегодняшнюю дату.
+                Также определи название магазина (супермаркета, торговой точки). Если название неизвестно или не указано, верни "Не указано".
                 Для каждого товара укажи:
                 1. originalName: оригинальное название товара с чека на исходном языке.
-                2. name: перевод названия товара на русский язык (если оригинал уже на русском, оставь его).
+                2. name: перевод названия товара на русский язык.
                 3. price: цена (число в валюте чека).
                 4. category: распредели строго по одной из созданных пользователем категорий: ${JSON.stringify(userCategories)}.
 
                 Верни ответ ТОЛЬКО в формате валидного JSON-объекта без лишнего текста следующей структуры:
                 {
+                  "shopName": "Название магазина",
                   "receiptDate": "YYYY-MM-DD",
                   "items": [
                     {"originalName": "...", "name": "...", "price": 45.00, "category": "${userCategories[0]}"}
@@ -348,10 +349,11 @@
                 textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
                 const parsedData = JSON.parse(textResult);
 
+                const shopName = parsedData.shopName || "Не указано";
                 const receiptDate = parsedData.receiptDate || new Date().toISOString().split('T')[0];
                 const items = parsedData.items || [];
+                const createdAt = new Date().toISOString();
 
-                // Получаем курс валют на дату чека
                 const historicalRates = await getHistoricalRates(receiptDate);
                 const rateToRub = historicalRates[selectedCurrency] ? (1 / historicalRates[selectedCurrency]) : 1;
 
@@ -366,7 +368,9 @@
                         currency: selectedCurrency,
                         priceRub: priceInRub,
                         category: item.category,
-                        receiptDate: receiptDate
+                        shop: shopName,
+                        receiptDate: receiptDate,
+                        createdAt: createdAt
                     });
                 }
 
@@ -389,7 +393,7 @@
             }
             renderCategories();
 
-            const q = query(collection(db, `users/${currentUser.uid}/items`), orderBy('receiptDate', 'desc'));
+            const q = query(collection(db, `users/${currentUser.uid}/items`), orderBy('createdAt', 'desc'));
             const querySnapshot = await getDocs(q);
             allItems = [];
             querySnapshot.forEach((docSnap) => {
@@ -406,7 +410,7 @@
 
             const now = new Date();
             return items.filter(item => {
-                const itemDate = new Date(item.receiptDate);
+                const itemDate = new Date(item.receiptDate || item.createdAt);
                 if (isNaN(itemDate)) return true;
 
                 if (period === 'month') {
@@ -435,8 +439,8 @@
         window.renderDashboard = async function() {
             const filteredItems = filterItemsByPeriod(allItems);
             const targetCurrency = document.getElementById('dashboard-currency').value;
+            const dashboardMode = document.getElementById('dashboard-mode').value; // 'category' или 'shop'
             
-            // Для дашборда берем актуальный курс целевой валюты
             const latestRates = await getHistoricalRates(new Date().toISOString().split('T')[0]);
             const rubToTargetRate = latestRates[targetCurrency] || 1;
 
@@ -447,18 +451,31 @@
 
             document.getElementById('total-sum').innerText = formatMoney(totalInTarget) + ' ' + targetCurrency;
 
-            let catTotals = {};
-            userCategories.forEach(cat => catTotals[cat] = 0);
-            catTotals['Другое'] = 0;
+            let statsData = {};
 
-            filteredItems.forEach(item => {
-                const cat = userCategories.includes(item.category) ? item.category : 'Другое';
-                const priceInTarget = (Number(item.priceRub) || 0) * rubToTargetRate;
-                catTotals[cat] = (catTotals[cat] || 0) + priceInTarget;
-            });
+            if (dashboardMode === 'category') {
+                userCategories.forEach(cat => statsData[cat] = 0);
+                statsData['Другое'] = 0;
 
-            let activeCats = Object.keys(catTotals).filter(cat => catTotals[cat] > 0);
-            if (activeCats.length === 0) activeCats = userCategories;
+                filteredItems.forEach(item => {
+                    const cat = userCategories.includes(item.category) ? item.category : 'Другое';
+                    const priceInTarget = (Number(item.priceRub) || 0) * rubToTargetRate;
+                    statsData[cat] = (statsData[cat] || 0) + priceInTarget;
+                });
+            } else {
+                // По магазинам
+                filteredItems.forEach(item => {
+                    const shop = item.shop || 'Не указано';
+                    const priceInTarget = (Number(item.priceRub) || 0) * rubToTargetRate;
+                    statsData[shop] = (statsData[shop] || 0) + priceInTarget;
+                });
+            }
+
+            let activeKeys = Object.keys(statsData).filter(key => statsData[key] > 0);
+            if (activeKeys.length === 0) {
+                activeKeys = dashboardMode === 'category' ? userCategories : ['Не указано'];
+                activeKeys.forEach(k => statsData[k] = 0);
+            }
 
             const ctx = document.getElementById('expensesChart').getContext('2d');
             if (chartInstance) chartInstance.destroy();
@@ -466,10 +483,10 @@
             chartInstance = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
-                    labels: activeCats,
+                    labels: activeKeys,
                     datasets: [{
-                        data: activeCats.map(cat => catTotals[cat]),
-                        backgroundColor: ['#3b82f6', '#ec4899', '#10b981', '#f59e0b', '#64748b', '#8b5cf6', '#06b6d4']
+                        data: activeKeys.map(k => statsData[k]),
+                        backgroundColor: ['#3b82f6', '#ec4899', '#10b981', '#f59e0b', '#64748b', '#8b5cf6', '#06b6d4', '#f43f5e']
                     }]
                 },
                 options: {
@@ -484,37 +501,113 @@
             if (!dateStr) return '';
             const parts = dateStr.split('-');
             if (parts.length === 3) {
-                return `${parts[2]}.${parts[1]}.${parts[0]}`; // ДД.ММ.ГГГГ
+                return `${parts[2]}.${parts[1]}.${parts[0]}`;
             }
             return dateStr;
         }
 
+        // Группировка элементов по чекам (по уникальной комбинации даты, магазина и времени создания)
+        function groupItemsIntoReceipts(items) {
+            let receiptsMap = {};
+            items.forEach(item => {
+                // Создаем ключ чека (если есть createdAt с точностью до минуты или дата+магазин)
+                // Для надежности сгруппируем по receiptDate + shop + (createdAt без секунд или первый попавшийся признак)
+                const groupKey = `${item.receiptDate}_${item.shop || 'Не указано'}_${item.createdAt || ''}`;
+                if (!receiptsMap[groupKey]) {
+                    receiptsMap[groupKey] = {
+                        receiptDate: item.receiptDate,
+                        shop: item.shop || 'Не указано',
+                        createdAt: item.createdAt,
+                        items: []
+                    };
+                }
+                receiptsMap[groupKey].items.push(item);
+            });
+            return Object.values(receiptsMap);
+        }
+
         function renderList() {
-            const listEl = document.getElementById('items-list');
+            const listEl = document.getElementById('receipts-list');
             if (allItems.length === 0) {
                 listEl.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">Пока нет сохраненных чеков</p>`;
                 return;
             }
 
-            listEl.innerHTML = allItems.map(item => `
-                <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl text-sm">
-                    <div class="flex-1 pr-2">
-                        <div class="flex items-center justify-between mb-0.5">
-                            <p class="font-medium text-slate-800">${item.name} <span class="text-xs text-slate-400 font-normal">(${item.originalName || item.name})</span></p>
-                            <span class="text-[10px] text-slate-400 bg-slate-200/60 px-1.5 py-0.5 rounded">${formatDateReadable(item.receiptDate)}</span>
+            const receipts = groupItemsIntoReceipts(allItems);
+
+            listEl.innerHTML = receipts.map((receipt, index) => {
+                const receiptNum = receipts.length - index;
+                // Считаем общую сумму чека в рублях и оригинальной валюте (если валюта едина)
+                const totalRub = receipt.items.reduce((s, i) => s + (Number(i.priceRub) || 0), 0);
+                const currency = receipt.items[0] ? receipt.items[0].currency : 'RUB';
+                const totalOriginal = receipt.items.reduce((s, i) => s + (Number(i.originalPrice) || 0), 0);
+
+                return `
+                    <div class="bg-slate-50 rounded-2xl p-3 border border-slate-200/60 shadow-sm mb-3">
+                        <!-- Шапка чека (аккордеон) -->
+                        <div onclick="toggleReceipt('receipt-body-${index}')" class="flex justify-between items-center cursor-pointer select-none">
+                            <div class="flex items-center gap-2">
+                                <span class="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded-lg">Чек #${receiptNum}</span>
+                                <div>
+                                    <input type="text" value="${receipt.shop}" onclick="event.stopPropagation()" onchange="updateReceiptShop(this, '${receipt.createdAt}', '${receipt.shop}')" class="font-semibold text-slate-800 text-sm bg-transparent border-b border-dashed border-slate-300 focus:border-blue-500 focus:outline-none w-36" title="Нажмите, чтобы изменить магазин">
+                                    <p class="text-[10px] text-slate-400">${formatDateReadable(receipt.receiptDate)}</p>
+                                </div>
+                            </div>
+                            <div class="text-right flex items-center gap-2">
+                                <div>
+                                    <p class="font-bold text-slate-900 text-sm">${formatMoney(totalOriginal)} ${currency}</p>
+                                    <p class="text-[10px] text-slate-400">${formatMoney(totalRub)} ₽</p>
+                                </div>
+                                <i class="fa-solid fa-chevron-down text-slate-400 text-xs transition-transform duration-200" id="icon-${index}"></i>
+                            </div>
                         </div>
-                        <div class="flex items-center gap-2 mt-1 flex-wrap">
-                            <span class="font-bold text-slate-900">${formatMoney(item.originalPrice)} ${item.currency}</span>
-                            <span class="text-xs text-slate-400">(${formatMoney(item.priceRub)} ₽)</span>
-                            <select onchange="updateCategory('${item.id}', this.value)" class="text-xs bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none">
-                                ${userCategories.map(cat => `<option value="${cat}" ${cat === item.category ? 'selected' : ''}>${cat}</option>`).join('')}
-                            </select>
+
+                        <!-- Раскрывающийся список позиций -->
+                        <div id="receipt-body-${index}" class="hidden mt-3 pt-3 border-t border-slate-200 space-y-2">
+                            ${receipt.items.map(item => `
+                                <div class="flex items-center justify-between bg-white p-2.5 rounded-xl text-xs border border-slate-100">
+                                    <div class="flex-1 pr-2">
+                                        <p class="font-medium text-slate-800">${item.name} <span class="text-[10px] text-slate-400 font-normal">(${item.originalName || item.name})</span></p>
+                                        <div class="flex items-center gap-2 mt-1">
+                                            <span class="font-bold text-slate-900">${formatMoney(item.originalPrice)}${item.currency}</span>
+                                            <span class="text-[10px] text-slate-400">(${formatMoney(item.priceRub)} ₽)</span>
+                                            <select onchange="updateCategory('${item.id}', this.value)" class="text-[10px] bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-0.5 text-slate-600 focus:outline-none">
+                                                ${userCategories.map(cat => `<option value="${cat}" ${cat === item.category ? 'selected' : ''}>${cat}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <button onclick="deleteItem('${item.id}')" class="text-slate-300 hover:text-red-500 p-1.5"><i class="fa-solid fa-trash-can"></i></button>
+                                </div>
+                            `).join('')}
                         </div>
                     </div>
-                    <button onclick="deleteItem('${item.id}')" class="text-slate-300 hover:text-red-500 p-2"><i class="fa-solid fa-trash-can text-xs"></i></button>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         }
+
+        window.toggleReceipt = function(bodyId) {
+            const bodyEl = document.getElementById(bodyId);
+            const index = bodyId.split('-').pop();
+            const iconEl = document.getElementById(`icon-${index}`);
+            if (bodyEl.classList.contains('hidden')) {
+                bodyEl.classList.remove('hidden');
+                iconEl.style.transform = 'rotate(180deg)';
+            } else {
+                bodyEl.classList.add('hidden');
+                iconEl.style.transform = 'rotate(0deg)';
+            }
+        };
+
+        // Массовое обновление магазина для всех товаров этого чека
+        window.updateReceiptShop = async function(inputEl, createdAt, oldShop) {
+            const newShop = inputEl.value.trim() || "Не указано";
+            // Находим все элементы с таким createdAt
+            const targetItems = allItems.filter(item => item.createdAt === createdAt);
+            for (let item of targetItems) {
+                await updateDoc(doc(db, `users/${currentUser.uid}/items`, item.id), { shop: newShop });
+            }
+            loadData();
+        };
 
         window.updateCategory = async function(id, newCat) {
             await updateDoc(doc(db, `users/${currentUser.uid}/items`, id), { category: newCat });
