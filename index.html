@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Учет расходов по чекам</title>
+    <title>Мультивалютный учет расходов</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Chart.js -->
@@ -27,11 +27,11 @@
         </div>
     </div>
 
-    <!-- Экран ввода API-ключа (если еще не привязан) -->
+    <!-- Экран ввода API-ключа -->
     <div id="apikey-screen" class="fixed inset-0 bg-slate-900 z-40 flex items-center justify-center p-4 hidden">
         <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
             <h2 class="text-xl font-bold text-slate-900 mb-2 text-center">Привязка Gemini API</h2>
-            <p class="text-xs text-slate-500 mb-4 text-center">Введите ваш личный ключ из Google AI Studio. Он надежно сохранится в вашей базе данных и не попадет в Git.</p>
+            <p class="text-xs text-slate-500 mb-4 text-center">Введите ваш личный ключ из Google AI Studio.</p>
             <input type="text" id="user-gemini-key" placeholder="AQ.Ab8RN6..." class="w-full border border-slate-200 rounded-xl px-4 py-3 mb-4 text-sm focus:outline-none focus:border-blue-500 font-mono">
             <button onclick="saveUserApiKey()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 rounded-xl transition text-sm">Сохранить ключ</button>
         </div>
@@ -42,36 +42,78 @@
         <!-- Шапка -->
         <header class="flex justify-between items-center my-4">
             <div>
-                <h1 class="text-xl font-extrabold text-slate-900">Мои Чеки & AI</h1>
+                <h1 class="text-xl font-extrabold text-slate-900">Мультивалютный AI Кошелек</h1>
                 <p class="text-xs text-slate-500" id="user-email-display"></p>
             </div>
             <div class="flex items-center gap-3">
-                <button onclick="openSettings()" class="text-slate-400 hover:text-blue-600 text-sm" title="Настройки API ключа"><i class="fa-solid fa-key"></i></button>
+                <button onclick="openSettings()" class="text-slate-400 hover:text-blue-600 text-sm" title="Настройки API"><i class="fa-solid fa-key"></i></button>
                 <button onclick="logout()" class="text-slate-400 hover:text-red-500 text-sm" title="Выйти"><i class="fa-solid fa-right-from-bracket"></i></button>
             </div>
         </header>
 
-        <!-- Кнопка добавления чека -->
+        <!-- Блок добавления чека -->
         <div class="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-5 text-white shadow-lg mb-6">
             <h2 class="font-bold text-lg mb-1">Новый чек</h2>
-            <p class="text-xs text-blue-100 mb-4">Сфотографируйте чек, и ИИ разнесет всё по категориям.</p>
+            <p class="text-xs text-blue-100 mb-3">Выберите валюту чека, сфотографируйте, и ИИ разнесет позиции по вашим категориям.</p>
+            
+            <div class="mb-3">
+                <label class="block text-xs text-blue-100 mb-1">Валюта чека:</label>
+                <select id="receipt-currency" class="w-full bg-white text-slate-800 text-sm font-medium rounded-xl px-3 py-2 border-none focus:outline-none">
+                    <option value="RUB">RUB (Российский рубль)</option>
+                    <option value="THB" selected>THB (Тайский бат)</option>
+                    <option value="USD">USD (Доллар США)</option>
+                    <option value="EUR">EUR (Евро)</option>
+                    <option value="KZT">KZT (Казахстанский тенге)</option>
+                </select>
+            </div>
+
             <label class="block w-full bg-white text-blue-600 hover:bg-blue-50 font-semibold text-center py-3 rounded-xl cursor-pointer transition shadow-sm text-sm">
                 <i class="fa-solid fa-camera mr-2"></i> Сделать фото / Загрузить чек
                 <input type="file" accept="image/*" capture="environment" id="receipt-input" class="hidden" onchange="processReceipt(event)">
             </label>
         </div>
 
+        <!-- Управление категориями -->
+        <div class="bg-white rounded-2xl p-4 shadow-sm mb-6">
+            <h3 class="font-bold text-slate-800 text-xs uppercase tracking-wider mb-2">Ваши категории трат</h3>
+            <div id="categories-container" class="flex flex-wrap gap-2 mb-3">
+                <!-- Динамические теги категорий -->
+            </div>
+            <div class="flex gap-2">
+                <input type="text" id="new-category-input" placeholder="Новая категория..." class="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-blue-500">
+                <button onclick="addCategory()" class="bg-slate-900 hover:bg-slate-800 text-white text-xs px-4 py-2 rounded-xl transition">Добавить</button>
+            </div>
+        </div>
+
         <!-- Прелоадер -->
         <div id="loading-box" class="bg-white rounded-2xl p-6 text-center shadow-sm mb-6 hidden">
             <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mb-3"></div>
-            <p class="text-sm font-medium text-slate-700">ИИ анализирует чек и категории...</p>
+            <p class="text-sm font-medium text-slate-700">Конвертация курса, ИИ анализирует чек...</p>
         </div>
 
-        <!-- Дашборд -->
+        <!-- Дашборд и фильтры -->
         <div class="bg-white rounded-2xl p-5 shadow-sm mb-6">
-            <div class="flex justify-between items-center mb-4">
-                <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider">Траты за всё время</h3>
-                <span id="total-sum" class="text-lg font-extrabold text-blue-600">0 ₽</span>
+            <div class="flex flex-col gap-3 mb-4">
+                <div class="flex justify-between items-center">
+                    <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider">Дашборд трат</h3>
+                    <span id="total-sum" class="text-lg font-extrabold text-blue-600">0</span>
+                </div>
+                <!-- Селекторы периода и валюты дашборда -->
+                <div class="grid grid-cols-2 gap-2">
+                    <select id="period-filter" onchange="renderDashboard()" class="text-xs bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-slate-700 focus:outline-none">
+                        <option value="all">За всё время</option>
+                        <option value="month" selected>Текущий месяц</option>
+                        <option value="prev_month">Прошлый месяц</option>
+                        <option value="days30">Последние 30 дней</option>
+                        <option value="year">Текущий год</option>
+                    </select>
+                    <select id="dashboard-currency" onchange="renderDashboard()" class="text-xs bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-slate-700 focus:outline-none">
+                        <option value="RUB" selected>Отображать в RUB</option>
+                        <option value="THB">Отображать в THB</option>
+                        <option value="USD">Отображать в USD</option>
+                        <option value="EUR">Отображать в EUR</option>
+                    </select>
+                </div>
             </div>
             <div class="relative h-48 flex justify-center items-center">
                 <canvas id="expensesChart"></canvas>
@@ -93,7 +135,6 @@
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, getDoc, setDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // ================= CONFIGS =================
         const firebaseConfig = {
             apiKey: "AIzaSyBtzjFba5Ho2jORrSi5GKvucaDNzCCAh5g",
             authDomain: "countme-a0e8a.firebaseapp.com",
@@ -103,8 +144,6 @@
             appId: "1:900011386839:web:be2e211eaccfdee5d60d92",
             measurementId: "G-8D4V6HF347"
         };
-        // Обратите внимание: в коде БОЛЬШЕ НЕТ глобального GEMINI_API_KEY. Он берется из базы для каждого юзера!
-        // ===========================================
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
@@ -114,7 +153,8 @@
         let currentUserApiKey = "";
         let chartInstance = null;
         let allItems = [];
-        const categories = ['Еда', 'Вкусняшки (излишество)', 'Средства гигиены', 'Быт', 'Другое'];
+        let userCategories = [];
+        let exchangeRates = { RUB: 1 };
 
         window.handleAuth = async function() {
             const email = document.getElementById('auth-email').value;
@@ -144,7 +184,6 @@
                 document.getElementById('auth-screen').classList.add('hidden');
                 document.getElementById('user-email-display').innerText = user.email;
 
-                // Проверяем, есть ли у пользователя сохраненный API-ключ в базе
                 const userDocRef = doc(db, `users/${user.uid}`);
                 const userDoc = await getDoc(userDocRef);
 
@@ -152,13 +191,13 @@
                     currentUserApiKey = userDoc.data().geminiApiKey;
                     document.getElementById('apikey-screen').classList.add('hidden');
                     document.getElementById('app-screen').classList.remove('hidden');
+                    await fetchRates();
                     loadData();
                 } else {
-                    // Если ключа нет — показываем окно ввода
                     document.getElementById('apikey-screen').classList.remove('hidden');
                 }
             } else {
-                document.getElementById('auth-screen').classList.remove('hidden');
+                document.getElementById('auth-screen').classList.add('hidden');
                 document.getElementById('apikey-screen').classList.add('hidden');
                 document.getElementById('app-screen').classList.add('hidden');
             }
@@ -166,17 +205,14 @@
 
         window.saveUserApiKey = async function() {
             const keyInput = document.getElementById('user-gemini-key').value.trim();
-            if (!keyInput) {
-                alert('Введите ключ!');
-                return;
-            }
+            if (!keyInput) { alert('Введите ключ!'); return; }
 
-            // Сохраняем ключ в базу данных Firestore в документ пользователя
             await setDoc(doc(db, `users/${currentUser.uid}`), { geminiApiKey: keyInput }, { merge: true });
             currentUserApiKey = keyInput;
 
             document.getElementById('apikey-screen').classList.add('hidden');
             document.getElementById('app-screen').classList.remove('hidden');
+            await fetchRates();
             loadData();
         };
 
@@ -184,6 +220,57 @@
             document.getElementById('user-gemini-key').value = currentUserApiKey;
             document.getElementById('apikey-screen').classList.remove('hidden');
         };
+
+        // Загрузка актуальных курсов валют относительно RUB
+        async function fetchRates() {
+            try {
+                const res = await fetch('https://open.er-api.com/v6/latest/RUB');
+                const data = await res.json();
+                if (data && data.rates) {
+                    exchangeRates = data.rates; // Курсы к рублю (например, сколько рублей за 1 USD/THB)
+                }
+            } catch (e) {
+                console.error('Не удалось загрузить курсы валют, используются базовые', e);
+            }
+        }
+
+        // Управление категориями пользователя
+        window.addCategory = async function() {
+            const input = document.getElementById('new-category-input');
+            const catName = input.value.trim();
+            if (!catName || userCategories.includes(catName)) return;
+
+            userCategories.push(catName);
+            input.value = '';
+            await setDoc(doc(db, `users/${currentUser.uid}/settings`, 'categories'), { list: userCategories });
+            renderCategories();
+            renderList();
+        }
+
+        window.deleteCategory = async function(catName) {
+            if (userCategories.length <= 1) {
+                alert('Должна остаться хотя бы одна категория');
+                return;
+            }
+            userCategories = userCategories.filter(c => c !== catName);
+            await setDoc(doc(db, `users/${currentUser.uid}/settings`, 'categories'), { list: userCategories });
+            renderCategories();
+            renderList();
+        }
+
+        function renderCategories() {
+            const container = document.getElementById('categories-container');
+            if (userCategories.length === 0) {
+                container.innerHTML = `<p class="text-xs text-slate-400">Список пуст. Добавьте свою первую категорию ниже.</p>`;
+                return;
+            }
+            container.innerHTML = userCategories.map(cat => `
+                <span class="inline-flex items-center gap-1 bg-slate-100 text-slate-700 text-xs px-3 py-1.5 rounded-xl font-medium">
+                    ${cat}
+                    <button onclick="deleteCategory('${cat}')" class="text-slate-400 hover:text-red-500 ml-1"><i class="fa-solid fa-xmark"></i></button>
+                </span>
+            `).join('');
+        }
 
         function fileToBase64(file) {
             return new Promise((resolve, reject) => {
@@ -198,16 +285,23 @@
             const file = event.target.files[0];
             if (!file) return;
 
+            if (userCategories.length === 0) {
+                alert('Сначала добавьте хотя бы одну категорию трат в настройках выше!');
+                event.target.value = '';
+                return;
+            }
+
+            const selectedCurrency = document.getElementById('receipt-currency').value;
             document.getElementById('loading-box').classList.remove('hidden');
 
             try {
                 const base64Image = await fileToBase64(file);
                 
-                const prompt = `Распознай все товары с этого чека. Для каждого товара укажи название, цену (число) и распредели строго по одной из категорий: ["Еда", "Вкусняшки (излишество)", "Средства гигиены", "Быт", "Другое"].
+                const prompt = `Распознай все товары с этого чека. Для каждого товара укажи название, цену (число в валюте чека) и распредели строго по одной из созданных пользователем категорий: ${JSON.stringify(userCategories)}.
                 Верни ответ ТОЛЬКО в формате валидного JSON-массива без лишнего текста, например:
-                [{"name": "Молоко", "price": 89.50, "category": "Еда"}, {"name": "Чипсы", "price": 120.00, "category": "Вкусняшки (излишество)"}]`;
+                [{"name": "Молоко", "price": 45.00, "category": "${userCategories[0]}"}]`;
 
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${currentUserApiKey}`, {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${currentUserApiKey}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -221,18 +315,26 @@
                 });
 
                 const data = await response.json();
-                if (data.error) {
-                    throw new Error(data.error.message);
-                }
+                if (data.error) throw new Error(data.error.message);
 
                 let textResult = data.candidates[0].content.parts[0].text;
                 textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
                 const items = JSON.parse(textResult);
 
+                // Конвертация в рубли по текущему курсу
+                // exchangeRates хранит курс относительно RUB. Например, exchangeRates['THB'] = сколько рублей за 1 бат (или наоборот, проверим API: open.er-api возвращает базовую RUB, где rates['USD'] — сколько USD за 1 RUB. Значит цена в рублях = price / exchangeRates[currency])
+                // Пересчет: 1 RUB = rates[curr] * RUB => price_in_rub = price / exchangeRates[selectedCurrency]
+                const rateToRub = exchangeRates[selectedCurrency] ? (1 / exchangeRates[selectedCurrency]) : 1;
+
                 for (let item of items) {
+                    const originalPrice = Number(item.price) || 0;
+                    const priceInRub = originalPrice * rateToRub;
+
                     await addDoc(collection(db, `users/${currentUser.uid}/items`), {
                         name: item.name,
-                        price: Number(item.price),
+                        originalPrice: originalPrice,
+                        currency: selectedCurrency,
+                        priceRub: priceInRub,
                         category: item.category,
                         date: new Date().toISOString()
                     });
@@ -248,6 +350,17 @@
         };
 
         async function loadData() {
+            // Загружаем категории
+            const catDoc = await getDoc(doc(db, `users/${currentUser.uid}/settings`, 'categories'));
+            if (catDoc.exists() && catDoc.data().list) {
+                userCategories = catDoc.data().list;
+            } else {
+                userCategories = ['Еда', 'Развлечения']; // дефолт для первого входа
+                await setDoc(doc(db, `users/${currentUser.uid}/settings`, 'categories'), { list: userCategories });
+            }
+            renderCategories();
+
+            // Загружаем чеки/позиции
             const q = query(collection(db, `users/${currentUser.uid}/items`), orderBy('date', 'desc'));
             const querySnapshot = await getDocs(q);
             allItems = [];
@@ -259,19 +372,61 @@
             renderList();
         }
 
+        // Фильтрация по периоду
+        function filterItemsByPeriod(items) {
+            const period = document.getElementById('period-filter').value;
+            if (period === 'all') return items;
+
+            const now = new Date();
+            return items.filter(item => {
+                const itemDate = new Date(item.date);
+                if (period === 'month') {
+                    return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
+                }
+                if (period === 'prev_month') {
+                    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                    return itemDate.getMonth() === prev.getMonth() && itemDate.getFullYear() === prev.getFullYear();
+                }
+                if (period === 'days30') {
+                    const diffTime = Math.abs(now - itemDate);
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    return diffDays <= 30;
+                }
+                if (period === 'year') {
+                    return itemDate.getFullYear() === now.getFullYear();
+                }
+                return true;
+            });
+        }
+
         function renderDashboard() {
-            let total = allItems.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
-            document.getElementById('total-sum').innerText = total.toFixed(2) + ' ₽';
+            const filteredItems = filterItemsByPeriod(allItems);
+            const targetCurrency = document.getElementById('dashboard-currency').value;
+            
+            // Коэффициент пересчета из рублей в выбранную целевую валюту дашборда
+            // exchangeRates[targetCurrency] — сколько целевой валюты в 1 рубле (если base RUB)
+            const rubToTargetRate = exchangeRates[targetCurrency] || 1;
+
+            let totalInTarget = filteredItems.reduce((sum, item) => {
+                const priceRub = Number(item.priceRub) || 0;
+                return sum + (priceRub * rubToTargetRate);
+            }, 0);
+
+            document.getElementById('total-sum').innerText = totalInTarget.toFixed(2) + ' ' + targetCurrency;
 
             let catTotals = {};
-            categories.forEach(cat => catTotals[cat] = 0);
-            allItems.forEach(item => {
-                if (catTotals[item.category] !== undefined) {
-                    catTotals[item.category] += Number(item.price) || 0;
-                } else {
-                    catTotals['Другое'] = (catTotals['Другое'] || 0) + (Number(item.price) || 0);
-                }
+            userCategories.forEach(cat => catTotals[cat] = 0);
+            catTotals['Другое'] = 0;
+
+            filteredItems.forEach(item => {
+                const cat = userCategories.includes(item.category) ? item.category : 'Другое';
+                const priceInTarget = (Number(item.priceRub) || 0) * rubToTargetRate;
+                catTotals[cat] = (catTotals[cat] || 0) + priceInTarget;
             });
+
+            // Убираем пустые категории для чистоты графика, если их нет
+            let activeCats = Object.keys(catTotals).filter(cat => catTotals[cat] > 0);
+            if (activeCats.length === 0) activeCats = userCategories;
 
             const ctx = document.getElementById('expensesChart').getContext('2d');
             if (chartInstance) chartInstance.destroy();
@@ -279,10 +434,10 @@
             chartInstance = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
-                    labels: Object.keys(catTotals),
+                    labels: activeCats,
                     datasets: [{
-                        data: Object.values(catTotals),
-                        backgroundColor: ['#3b82f6', '#ec4899', '#10b981', '#f59e0b', '#64748b']
+                        data: activeCats.map(cat => catTotals[cat]),
+                        backgroundColor: ['#3b82f6', '#ec4899', '#10b981', '#f59e0b', '#64748b', '#8b5cf6', '#06b6d4']
                     }]
                 },
                 options: {
@@ -304,10 +459,11 @@
                 <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl text-sm">
                     <div class="flex-1 pr-2">
                         <p class="font-medium text-slate-800">${item.name}</p>
-                        <div class="flex items-center gap-2 mt-1">
-                            <span class="font-bold text-slate-900">${item.price} ₽</span>
+                        <div class="flex items-center gap-2 mt-1 flex-wrap">
+                            <span class="font-bold text-slate-900">${item.originalPrice} ${item.currency}</span>
+                            <span class="text-xs text-slate-400">(${Number(item.priceRub).toFixed(2)} ₽)</span>
                             <select onchange="updateCategory('${item.id}', this.value)" class="text-xs bg-white border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none">
-                                ${categories.map(cat => `<option value="${cat}" ${cat === item.category ? 'selected' : ''}>${cat}</option>`).join('')}
+                                ${userCategories.map(cat => `<option value="${cat}" ${cat === item.category ? 'selected' : ''}>${cat}</option>`).join('')}
                             </select>
                         </div>
                     </div>
