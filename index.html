@@ -54,7 +54,7 @@
         <!-- Блок добавления чека -->
         <div class="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-5 text-white shadow-lg mb-6">
             <h2 class="font-bold text-lg mb-1">Новый чек</h2>
-            <p class="text-xs text-blue-100 mb-3">Выберите валюту чека, сфотографируйте, и ИИ разнесет позиции по вашим категориям.</p>
+            <p class="text-xs text-blue-100 mb-3">Выберите валюту чека, сфотографируйте, и ИИ переведет позиции и разнесет их по категориям.</p>
             
             <div class="mb-3">
                 <label class="block text-xs text-blue-100 mb-1">Валюта чека:</label>
@@ -76,9 +76,7 @@
         <!-- Управление категориями -->
         <div class="bg-white rounded-2xl p-4 shadow-sm mb-6">
             <h3 class="font-bold text-slate-800 text-xs uppercase tracking-wider mb-2">Ваши категории трат</h3>
-            <div id="categories-container" class="flex flex-wrap gap-2 mb-3">
-                <!-- Динамические теги категорий -->
-            </div>
+            <div id="categories-container" class="flex flex-wrap gap-2 mb-3"></div>
             <div class="flex gap-2">
                 <input type="text" id="new-category-input" placeholder="Новая категория..." class="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-blue-500">
                 <button onclick="addCategory()" class="bg-slate-900 hover:bg-slate-800 text-white text-xs px-4 py-2 rounded-xl transition">Добавить</button>
@@ -88,7 +86,7 @@
         <!-- Прелоадер -->
         <div id="loading-box" class="bg-white rounded-2xl p-6 text-center shadow-sm mb-6 hidden">
             <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mb-3"></div>
-            <p class="text-sm font-medium text-slate-700">Конвертация курса, ИИ анализирует чек...</p>
+            <p class="text-sm font-medium text-slate-700">ИИ переводит товары и анализирует чек...</p>
         </div>
 
         <!-- Дашборд и фильтры -->
@@ -221,20 +219,18 @@
             document.getElementById('apikey-screen').classList.remove('hidden');
         };
 
-        // Загрузка актуальных курсов валют относительно RUB
         async function fetchRates() {
             try {
                 const res = await fetch('https://open.er-api.com/v6/latest/RUB');
                 const data = await res.json();
                 if (data && data.rates) {
-                    exchangeRates = data.rates; // Курсы к рублю (например, сколько рублей за 1 USD/THB)
+                    exchangeRates = data.rates;
                 }
             } catch (e) {
-                console.error('Не удалось загрузить курсы валют, используются базовые', e);
+                console.error('Не удалось загрузить курсы валют', e);
             }
         }
 
-        // Управление категориями пользователя
         window.addCategory = async function() {
             const input = document.getElementById('new-category-input');
             const catName = input.value.trim();
@@ -297,9 +293,20 @@
             try {
                 const base64Image = await fileToBase64(file);
                 
-                const prompt = `Распознай все товары с этого чека. Для каждого товара укажи название, цену (число в валюте чека) и распредели строго по одной из созданных пользователем категорий: ${JSON.stringify(userCategories)}.
-                Верни ответ ТОЛЬКО в формате валидного JSON-массива без лишнего текста, например:
-                [{"name": "Молоко", "price": 45.00, "category": "${userCategories[0]}"}]`;
+                const prompt = `Распознай дату чека (в формате YYYY-MM-DD, если даты нет на чеке, верни сегодняшнюю дату) и все товары с этого чека. 
+                Для каждого товара укажи:
+                1. originalName: оригинальное название товара с чека на исходном языке.
+                2. name: перевод названия товара на русский язык (если оригинал уже на русском, оставь его).
+                3. price: цена (число в валюте чека).
+                4. category: распредели строго по одной из созданных пользователем категорий: ${JSON.stringify(userCategories)}.
+
+                Верни ответ ТОЛЬКО в формате валидного JSON-объекта без лишнего текста следующей структуры:
+                {
+                  "receiptDate": "YYYY-MM-DD",
+                  "items": [
+                    {"originalName": "...", "name": "...", "price": 45.00, "category": "${userCategories[0]}"}
+                  ]
+                }`;
 
                 const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${currentUserApiKey}`, {
                     method: 'POST',
@@ -319,11 +326,11 @@
 
                 let textResult = data.candidates[0].content.parts[0].text;
                 textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
-                const items = JSON.parse(textResult);
+                const parsedData = JSON.parse(textResult);
 
-                // Конвертация в рубли по текущему курсу
-                // exchangeRates хранит курс относительно RUB. Например, exchangeRates['THB'] = сколько рублей за 1 бат (или наоборот, проверим API: open.er-api возвращает базовую RUB, где rates['USD'] — сколько USD за 1 RUB. Значит цена в рублях = price / exchangeRates[currency])
-                // Пересчет: 1 RUB = rates[curr] * RUB => price_in_rub = price / exchangeRates[selectedCurrency]
+                const receiptDate = parsedData.receiptDate || new Date().toISOString().split('T')[0];
+                const items = parsedData.items || [];
+
                 const rateToRub = exchangeRates[selectedCurrency] ? (1 / exchangeRates[selectedCurrency]) : 1;
 
                 for (let item of items) {
@@ -331,12 +338,13 @@
                     const priceInRub = originalPrice * rateToRub;
 
                     await addDoc(collection(db, `users/${currentUser.uid}/items`), {
-                        name: item.name,
+                        name: item.name || item.originalName,
+                        originalName: item.originalName || item.name,
                         originalPrice: originalPrice,
                         currency: selectedCurrency,
                         priceRub: priceInRub,
                         category: item.category,
-                        date: new Date().toISOString()
+                        date: receiptDate // Сохраняем дату из чека
                     });
                 }
 
@@ -350,17 +358,15 @@
         };
 
         async function loadData() {
-            // Загружаем категории
             const catDoc = await getDoc(doc(db, `users/${currentUser.uid}/settings`, 'categories'));
             if (catDoc.exists() && catDoc.data().list) {
                 userCategories = catDoc.data().list;
             } else {
-                userCategories = ['Еда', 'Развлечения']; // дефолт для первого входа
+                userCategories = ['Еда', 'Развлечения'];
                 await setDoc(doc(db, `users/${currentUser.uid}/settings`, 'categories'), { list: userCategories });
             }
             renderCategories();
 
-            // Загружаем чеки/позиции
             const q = query(collection(db, `users/${currentUser.uid}/items`), orderBy('date', 'desc'));
             const querySnapshot = await getDocs(q);
             allItems = [];
@@ -372,7 +378,6 @@
             renderList();
         }
 
-        // Фильтрация по периоду
         function filterItemsByPeriod(items) {
             const period = document.getElementById('period-filter').value;
             if (period === 'all') return items;
@@ -380,12 +385,14 @@
             const now = new Date();
             return items.filter(item => {
                 const itemDate = new Date(item.date);
+                if (isNaN(itemDate)) return true;
+
                 if (period === 'month') {
                     return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
                 }
                 if (period === 'prev_month') {
-                    const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-                    return itemDate.getMonth() === prev.getMonth() && itemDate.getFullYear() === prev.getFullYear();
+                    const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                    return itemDate.getMonth() === prevMonthDate.getMonth() && itemDate.getFullYear() === prevMonthDate.getFullYear();
                 }
                 if (period === 'days30') {
                     const diffTime = Math.abs(now - itemDate);
@@ -399,12 +406,10 @@
             });
         }
 
-        function renderDashboard() {
+        window.renderDashboard = function() {
             const filteredItems = filterItemsByPeriod(allItems);
             const targetCurrency = document.getElementById('dashboard-currency').value;
             
-            // Коэффициент пересчета из рублей в выбранную целевую валюту дашборда
-            // exchangeRates[targetCurrency] — сколько целевой валюты в 1 рубле (если base RUB)
             const rubToTargetRate = exchangeRates[targetCurrency] || 1;
 
             let totalInTarget = filteredItems.reduce((sum, item) => {
@@ -424,7 +429,6 @@
                 catTotals[cat] = (catTotals[cat] || 0) + priceInTarget;
             });
 
-            // Убираем пустые категории для чистоты графика, если их нет
             let activeCats = Object.keys(catTotals).filter(cat => catTotals[cat] > 0);
             if (activeCats.length === 0) activeCats = userCategories;
 
@@ -458,7 +462,10 @@
             listEl.innerHTML = allItems.map(item => `
                 <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl text-sm">
                     <div class="flex-1 pr-2">
-                        <p class="font-medium text-slate-800">${item.name}</p>
+                        <div class="flex items-center justify-between mb-0.5">
+                            <p class="font-medium text-slate-800">${item.name} <span class="text-xs text-slate-400 font-normal">(${item.originalName || item.name})</span></p>
+                            <span class="text-[10px] text-slate-400 bg-slate-200/60 px-1.5 py-0.5 rounded">${item.date || 'Без даты'}</span>
+                        </div>
                         <div class="flex items-center gap-2 mt-1 flex-wrap">
                             <span class="font-bold text-slate-900">${item.originalPrice} ${item.currency}</span>
                             <span class="text-xs text-slate-400">(${Number(item.priceRub).toFixed(2)} ₽)</span>
