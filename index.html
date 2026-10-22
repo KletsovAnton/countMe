@@ -111,7 +111,7 @@
         <!-- Прелоадер -->
         <div id="loading-box" class="bg-white rounded-2xl p-6 text-center shadow-sm mb-6 hidden">
             <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mb-3"></div>
-            <p class="text-sm font-medium text-slate-700">ИИ анализирует чек с учетом ваших заметок...</p>
+            <p class="text-sm font-medium text-slate-700">ИИ анализирует чек с учетом ваших заметок (модель 3.8)...</p>
         </div>
 
         <!-- Дашборд и аналитика -->
@@ -162,9 +162,7 @@
                             <button onclick="toggleAllFilters(false)" class="text-[10px] text-slate-400 hover:underline">Сбросить</button>
                         </div>
                     </div>
-                    <div id="filter-checkboxes" class="flex flex-wrap gap-2 max-h-24 overflow-y-auto p-1 bg-slate-50 rounded-xl border border-slate-200/60 text-xs">
-                        <!-- Динамические чекбоксы -->
-                    </div>
+                    <div id="filter-checkboxes" class="flex flex-wrap gap-2 max-h-24 overflow-y-auto p-1 bg-slate-50 rounded-xl border border-slate-200/60 text-xs"></div>
                 </div>
             </div>
 
@@ -210,8 +208,8 @@
         let ratesCache = {};
         
         let pendingFile = null;
-        let dashboardMode = 'category'; // 'category' или 'shop'
-        let selectedFilterKeys = new Set(); // Хранит выбранные для фильтрации ключи (категории или магазины)
+        let dashboardMode = 'category';
+        let selectedFilterKeys = new Set();
 
         window.handleAuth = async function() {
             const email = document.getElementById('auth-email').value;
@@ -349,7 +347,6 @@
             });
         }
 
-        // Шаг 1: Пользователь выбрал файл -> показываем модальное окно с превью
         window.handleFileSelected = function(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -368,7 +365,7 @@
                 document.getElementById('receipt-modal').classList.remove('hidden');
             };
             reader.readAsDataURL(file);
-            event.target.value = ''; // сброс инпута
+            event.target.value = '';
         }
 
         window.cancelReceiptUpload = function() {
@@ -376,7 +373,6 @@
             document.getElementById('receipt-modal').classList.add('hidden');
         }
 
-        // Шаг 2: Нажатие кнопки «Обработать» в модальном окне
         window.confirmReceiptUpload = async function() {
             if (!pendingFile) return;
             const file = pendingFile;
@@ -415,6 +411,7 @@
                   ]
                 }`;
 
+                // Использование актуальной модели gemini-3.8-flash
                 const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${currentUserApiKey}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -491,7 +488,6 @@
             renderList();
         }
 
-        // Управление вкладками дашборда
         window.setDashboardMode = function(mode) {
             dashboardMode = mode;
             const btnCat = document.getElementById('tab-mode-category');
@@ -508,7 +504,6 @@
             renderDashboard();
         }
 
-        // Инициализация доступных чекбоксов для фильтрации
         function initFilters() {
             const container = document.getElementById('filter-checkboxes');
             let keys = [];
@@ -521,7 +516,6 @@
                 if (keys.length === 0) keys = ['Не указано'];
             }
 
-            // Если список ключей изменился, по умолчанию выбираем все
             selectedFilterKeys = new Set(keys);
 
             container.innerHTML = keys.map(k => `
@@ -585,15 +579,26 @@
             return amount.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
 
+        function formatDateReadable(dateStr) {
+            if (!dateStr) return '';
+            const parts = dateStr.split('-');
+            if (parts.length === 3) {
+                return `${parts[2]}.${parts[1]}.${parts[0]}`; // ДД.ММ.ГГГГ
+            }
+            if (parts.length === 2) {
+                return `${parts[1]}.${parts[0]}`; // ММ.ГГГГ
+            }
+            return dateStr;
+        }
+
         window.renderDashboard = async function() {
             const filteredByPeriod = filterItemsByPeriod(allItems);
             const targetCurrency = document.getElementById('dashboard-currency').value;
-            const chartType = document.getElementById('chart-type').value; // 'doughnut', 'bar_day', 'bar_week', 'bar_month'
+            const chartType = document.getElementById('chart-type').value;
             
             const latestRates = await getHistoricalRates("2026-10-22");
             const rubToTargetRate = latestRates[targetCurrency] || 1;
 
-            // Фильтрация по выбранным чекбоксам
             const filteredItems = filteredByPeriod.filter(item => {
                 const key = dashboardMode === 'category' 
                     ? (userCategories.includes(item.category) ? item.category : 'Другое')
@@ -612,7 +617,6 @@
             if (chartInstance) chartInstance.destroy();
 
             if (chartType === 'doughnut') {
-                // Круговая диаграмма
                 let statsData = {};
                 if (dashboardMode === 'category') {
                     userCategories.forEach(cat => statsData[cat] = 0);
@@ -652,7 +656,6 @@
                     }
                 });
             } else {
-                // Столбчатая диаграмма (по дням, неделям, месяцам)
                 let timeGrouped = {};
 
                 filteredItems.forEach(item => {
@@ -660,30 +663,40 @@
                     const dateObj = new Date(dateStr);
                     if (isNaN(dateObj)) return;
 
-                    let groupKey = dateStr;
+                    let groupKey = dateStr; // YYYY-MM-DD
                     if (chartType === 'bar_week') {
-                        // Начало недели (понедельник)
                         const d = new Date(dateObj);
                         const day = d.getDay();
                         const diff = d.getDate() - day + (day === 0 ? -6 : 1);
                         const monday = new Date(d.setDate(diff));
-                        groupKey = monday.toISOString().split('T')[0] + ' (нед)';
+                        groupKey = monday.toISOString().split('T')[0] + '_week';
                     } else if (chartType === 'bar_month') {
-                        groupKey = dateStr.substring(0, 7); // YYYY-MM
+                        groupKey = dateStr.substring(0, 7) + '-01'; // YYYY-MM-01
                     }
 
                     const priceInTarget = (Number(item.priceRub) || 0) * rubToTargetRate;
                     timeGrouped[groupKey] = (timeGrouped[groupKey] || 0) + priceInTarget;
                 });
 
-                // Сортируем ключи по дате
                 const sortedKeys = Object.keys(timeGrouped).sort();
                 const values = sortedKeys.map(k => timeGrouped[k]);
+                
+                // Форматирование дат для меток гистограммы в формат ДД.ММ.ГГГГ
+                const labels = sortedKeys.map(k => {
+                    if (chartType === 'bar_week') {
+                        const cleanDate = k.replace('_week', '');
+                        return formatDateReadable(cleanDate) + ' (нед)';
+                    } else if (chartType === 'bar_month') {
+                        const parts = k.split('-');
+                        return `${parts[1]}.${parts[0]}`; // ММ.ГГГГ для месяцев
+                    }
+                    return formatDateReadable(k); // ДД.ММ.ГГГГ для дней
+                });
 
                 chartInstance = new Chart(ctx, {
                     type: 'bar',
                     data: {
-                        labels: sortedKeys,
+                        labels: labels,
                         datasets: [{
                             label: `Сумма в ${targetCurrency}`,
                             data: values,
@@ -702,15 +715,6 @@
                     }
                 });
             }
-        }
-
-        function formatDateReadable(dateStr) {
-            if (!dateStr) return '';
-            const parts = dateStr.split('-');
-            if (parts.length === 3) {
-                return `${parts[2]}.${parts[1]}.${parts[0]}`;
-            }
-            return dateStr;
         }
 
         function groupItemsIntoReceipts(items) {
