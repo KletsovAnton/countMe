@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Мультивалютный учет расходов</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -12,6 +12,11 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <style>
+        body {
+            padding-top: env(safe-area-inset-top);
+        }
+    </style>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen pb-12">
 
@@ -37,7 +42,7 @@
         </div>
     </div>
 
-    <!-- Модальное окно подтверждения чека и голосовых заметок -->
+    <!-- Модальное окно подтверждения чека -->
     <div id="receipt-modal" class="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 hidden">
         <div class="bg-white rounded-2xl p-5 w-full max-w-sm shadow-2xl max-h-[90vh] overflow-y-auto">
             <h3 class="font-bold text-slate-800 text-base mb-3">Подтверждение чека</h3>
@@ -47,11 +52,9 @@
                 <img id="modal-img-preview" src="" alt="Чек" class="max-h-full object-contain">
             </div>
 
-            <!-- Дополнительное поле для промпта + микрофон -->
+            <!-- Дополнительное поле для текстовой заметки -->
             <div class="mb-4">
-                <div class="flex justify-between items-center mb-1">
-                    <label class="block text-xs font-semibold text-slate-600">Заметка / Инструкция для ИИ:</label>
-                </div>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">Заметка / Инструкция для ИИ:</label>
                 <textarea id="modal-prompt-note" rows="2" placeholder="Например: 'не учитывай две первые позиции из чека'" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500"></textarea>
             </div>
 
@@ -190,7 +193,7 @@
         </div>
     </div>
 
-    <!-- Логика приложения (Стандартные импорты Firebase, как было изначально) -->
+    <!-- Логика приложения -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
@@ -221,10 +224,9 @@
         let dashboardMode = 'category';
         let selectedFilterKeys = new Set();
 
-        // Переменные для аудио
+        // Переменные для аудио (голосовой ввод трат)
         let mediaRecorder = null;
         let audioChunks = [];
-        let isRecordingModalVoice = false;
         let isRecordingVoiceExpense = false;
 
         window.handleAuth = async function() {
@@ -255,19 +257,25 @@
                 document.getElementById('auth-screen').classList.add('hidden');
                 document.getElementById('user-email-display').innerText = user.email;
 
-                const userDocRef = doc(db, `users/${user.uid}`);
-                const userDoc = await getDoc(userDocRef);
+                try {
+                    const userDocRef = doc(db, `users/${user.uid}`);
+                    const userDoc = await getDoc(userDocRef);
 
-                if (userDoc.exists() && userDoc.data().geminiApiKey) {
-                    currentUserApiKey = userDoc.data().geminiApiKey;
-                    document.getElementById('apikey-screen').classList.add('hidden');
-                    document.getElementById('app-screen').classList.remove('hidden');
-                    loadData();
-                } else {
-                    document.getElementById('apikey-screen').classList.remove('hidden');
+                    if (userDoc.exists() && userDoc.data().geminiApiKey) {
+                        currentUserApiKey = userDoc.data().geminiApiKey;
+                        document.getElementById('apikey-screen').classList.add('hidden');
+                        document.getElementById('app-screen').classList.remove('hidden');
+                        loadData();
+                    } else {
+                        document.getElementById('apikey-screen').classList.remove('hidden');
+                    }
+                } catch (err) {
+                    alert("Ошибка загрузки данных профиля: " + err.message);
+                    document.getElementById('auth-screen').classList.remove('hidden');
                 }
             } else {
-                document.getElementById('auth-screen').classList.add('hidden');
+                // Показываем экран авторизации, если сессии нет (например, при запуске с рабочего стола iOS)
+                document.getElementById('auth-screen').classList.remove('hidden');
                 document.getElementById('apikey-screen').classList.add('hidden');
                 document.getElementById('app-screen').classList.add('hidden');
             }
@@ -353,63 +361,22 @@
                     return;
                 }
                 mediaRecorder.onstop = async () => {
+                    // Берем реальный формат записи устройства (важно для совместимости с iPhone/iOS)
+                    const rawMimeType = mediaRecorder.mimeType || 'audio/mp4';
+                    const cleanMimeType = rawMimeType.split(';')[0];
+                    
                     mediaRecorder.stream.getTracks().forEach(track => track.stop());
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const audioBlob = new Blob(audioChunks, { type: cleanMimeType });
                     const reader = new FileReader();
                     reader.onloadend = () => {
                         const base64Audio = reader.result.split(',')[1];
-                        resolve({ base64: base64Audio, mimeType: audioBlob.type || 'audio/webm' });
+                        resolve({ base64: base64Audio, mimeType: cleanMimeType });
                     };
                     reader.readAsDataURL(audioBlob);
                 };
                 mediaRecorder.stop();
             });
         }
-
-        // Диктовка заметки для фото
-        window.toggleModalVoiceRecording = async function() {
-            const micBtn = document.getElementById('modal-mic-btn');
-            const micText = document.getElementById('modal-mic-text');
-            const textarea = document.getElementById('modal-prompt-note');
-
-            if (!isRecordingModalVoice) {
-                try {
-                    await startAudioRecording();
-                    isRecordingModalVoice = true;
-                    micBtn.classList.add('text-red-600');
-                    micText.innerText = 'Остановить запись...';
-                } catch (err) {
-                    alert('Не удалось получить доступ к микрофону: ' + err.message);
-                }
-            } else {
-                isRecordingModalVoice = false;
-                micBtn.classList.remove('text-red-600');
-                micText.innerText = 'Надиктовать';
-                
-                document.getElementById('loading-text').innerText = 'Распознаем голосовую заметку...';
-                document.getElementById('loading-box').classList.remove('hidden');
-
-                const audioData = await stopAudioRecording();
-                if (audioData) {
-                    try {
-                        const payload = {
-                            contents: [{
-                                parts: [
-                                    { text: "Прослушай это аудиосообщение и дословно (или близко к тексту) расшифруй инструкцию/заметку пользователя для чека на русском языке. Верни ТОЛЬКО текст расшифровки без лишних фраз." },
-                                    { inlineData: { mimeType: audioData.mimeType, data: audioData.base64 } }
-                                ]
-                            }]
-                        };
-                        const data = await callGeminiWithRetry(payload);
-                        const transcript = data.candidates[0].content.parts[0].text.trim();
-                        textarea.value = transcript;
-                    } catch (err) {
-                        alert('Ошибка расшифровки голоса: ' + err.message);
-                    }
-                }
-                document.getElementById('loading-box').classList.add('hidden');
-            }
-        };
 
         // Голосовой ввод трат (без чека)
         window.toggleVoiceExpenseRecording = async function() {
@@ -510,7 +477,7 @@
             renderCategories();
             initFilters();
             renderList();
-        }
+        };
 
         window.deleteCategory = async function(catName) {
             if (userCategories.length <= 1) {
@@ -522,7 +489,7 @@
             renderCategories();
             initFilters();
             renderList();
-        }
+        };
 
         function renderCategories() {
             const container = document.getElementById('categories-container');
@@ -566,12 +533,12 @@
             };
             reader.readAsDataURL(file);
             event.target.value = '';
-        }
+        };
 
         window.cancelReceiptUpload = function() {
             pendingFile = null;
             document.getElementById('receipt-modal').classList.add('hidden');
-        }
+        };
 
         window.confirmReceiptUpload = async function() {
             if (!pendingFile) return;
@@ -696,7 +663,7 @@
             }
             initFilters();
             renderDashboard();
-        }
+        };
 
         function initFilters() {
             const container = document.getElementById('filter-checkboxes');
@@ -729,7 +696,7 @@
                 if (selectAll) selectedFilterKeys.add(cb.value);
             });
             renderDashboard();
-        }
+        };
 
         window.onFilterCheckboxChange = function() {
             const container = document.getElementById('filter-checkboxes');
@@ -739,7 +706,7 @@
                 if (cb.checked) selectedFilterKeys.add(cb.value);
             });
             renderDashboard();
-        }
+        };
 
         function filterItemsByPeriod(items) {
             const period = document.getElementById('period-filter').value;
@@ -908,7 +875,7 @@
                     }
                 });
             }
-        }
+        };
 
         function groupItemsIntoReceipts(items) {
             let receiptsMap = {};
