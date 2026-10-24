@@ -192,6 +192,11 @@
 
     <!-- Логика приложения -->
     <script type="module">
+
+        window.onerror = function(msg, url, line) {
+            alert("Ошибка PWA: " + msg + " (строка " + line + ")");
+        };
+        
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, getDoc, setDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
