@@ -11,17 +11,24 @@
     <!-- Иконки FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Перехватчик ошибок для отладки на PWA -->
-    <script>
-        window.addEventListener('error', function(e) {
-            console.error("Global error:", e.message);
-        });
-    </script>
-
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <!-- Перехватчик фатальных ошибок, чтобы видеть их на экране вместо белого фона -->
+    <script>
+        window.addEventListener('error', function(event) {
+            const errDiv = document.getElementById('fatal-error-box');
+            if (errDiv) {
+                errDiv.style.display = 'block';
+                errDiv.innerText = "Ошибка приложения: " + (event.message || "Неизвестная ошибка") + " в " + (event.filename || "") + ":" + (event.lineno || "");
+            }
+        });
+    </script>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen pb-12">
+
+    <!-- Экстренный блок для вывода ошибок на экран -->
+    <div id="fatal-error-box" style="display: none; background: #fee2e2; color: #b91c1c; padding: 16px; margin: 20px; border-radius: 12px; font-size: 12px; word-break: break-all; z-index: 99999; position: relative;"></div>
 
     <!-- Экран авторизации -->
     <div id="auth-screen" class="fixed inset-0 bg-slate-900 z-50 flex items-center justify-center p-4 hidden">
@@ -50,12 +57,10 @@
         <div class="bg-white rounded-2xl p-5 w-full max-w-sm shadow-2xl max-h-[90vh] overflow-y-auto">
             <h3 class="font-bold text-slate-800 text-base mb-3">Подтверждение чека</h3>
             
-            <!-- Превью фото -->
             <div class="mb-3 bg-slate-100 rounded-xl overflow-hidden h-48 flex items-center justify-center border border-slate-200">
                 <img id="modal-img-preview" src="" alt="Чек" class="max-h-full object-contain">
             </div>
 
-            <!-- Дополнительное поле для промпта + микрофон -->
             <div class="mb-4">
                 <div class="flex justify-between items-center mb-1">
                     <label class="block text-xs font-semibold text-slate-600">Заметка / Инструкция для ИИ:</label>
@@ -72,7 +77,6 @@
 
     <!-- Основной интерфейс -->
     <div id="app-screen" class="max-w-md mx-auto p-4 hidden">
-        <!-- Шапка -->
         <header class="flex justify-between items-center my-4">
             <div>
                 <h1 class="text-xl font-extrabold text-slate-900">Мультивалютный AI Кошелек</h1>
@@ -84,7 +88,6 @@
             </div>
         </header>
 
-        <!-- Блок добавления чека -->
         <div class="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-5 text-white shadow-lg mb-4">
             <h2 class="font-bold text-lg mb-1">Новый чек</h2>
             <p class="text-xs text-blue-100 mb-3">Выберите валюту, сфотографируйте или загрузите чек.</p>
@@ -108,7 +111,6 @@
             </label>
         </div>
 
-        <!-- Блок голосового ввода без чека -->
         <div class="bg-white rounded-2xl p-4 shadow-sm mb-6 border border-slate-200/60 flex items-center justify-between">
             <div>
                 <h3 class="font-bold text-slate-800 text-xs uppercase tracking-wider">Голосовой ввод трат</h3>
@@ -119,7 +121,6 @@
             </button>
         </div>
 
-        <!-- Управление категориями -->
         <div class="bg-white rounded-2xl p-4 shadow-sm mb-6">
             <h3 class="font-bold text-slate-800 text-xs uppercase tracking-wider mb-2">Ваши категории трат</h3>
             <div id="categories-container" class="flex flex-wrap gap-2 mb-3"></div>
@@ -129,13 +130,11 @@
             </div>
         </div>
 
-        <!-- Прелоадер -->
         <div id="loading-box" class="bg-white rounded-2xl p-6 text-center shadow-sm mb-6 hidden">
             <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mb-3"></div>
             <p id="loading-text" class="text-sm font-medium text-slate-700">Анализ чека...</p>
         </div>
 
-        <!-- Дашборд и аналитика -->
         <div class="bg-white rounded-2xl p-5 shadow-sm mb-6">
             <div class="flex flex-col gap-3 mb-4">
                 <div class="flex justify-between items-center">
@@ -189,7 +188,6 @@
             </div>
         </div>
 
-        <!-- История чеков -->
         <div class="bg-white rounded-2xl p-5 shadow-sm">
             <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider mb-4">История чеков и трат</h3>
             <div id="receipts-list" class="space-y-3">
@@ -229,7 +227,6 @@
         let dashboardMode = 'category';
         let selectedFilterKeys = new Set();
 
-        // Переменные для записи аудио (MediaRecorder)
         let mediaRecorder = null;
         let audioChunks = [];
         let isRecordingModalVoice = false;
@@ -323,7 +320,6 @@
             return { RUB: 1 };
         }
 
-        // Универсальная функция запроса к Gemini API с автоповтором (2 раза каждые 5 сек)
         async function callGeminiWithRetry(payload, maxRetries = 2, delaySec = 5) {
             for (let attempt = 0; attempt <= maxRetries; attempt++) {
                 try {
@@ -347,7 +343,6 @@
             }
         }
 
-        // Запись аудио с микрофона
         async function startAudioRecording() {
             audioChunks = [];
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -378,7 +373,6 @@
             });
         }
 
-        // Голосовая заметка для модального окна чека
         window.toggleModalVoiceRecording = async function() {
             const micBtn = document.getElementById('modal-mic-btn');
             const micText = document.getElementById('modal-mic-text');
@@ -423,7 +417,6 @@
             }
         };
 
-        // Голосовой ввод трат (без чека)
         window.toggleVoiceExpenseRecording = async function() {
             const btn = document.getElementById('voice-expense-btn');
             const textSpan = document.getElementById('voice-expense-text');
@@ -453,7 +446,7 @@
                 if (audioData) {
                     try {
                         const prompt = `Прослушай голосовое сообщение пользователя с описанием финансовой траты. 
-                        Текущая дата: 2026-10-22. Доступные пользователю категории: ${JSON.stringify(userCategories)}.
+                        Текущая дата: 2026-10-24. Доступные пользователю категории: ${JSON.stringify(userCategories)}.
                         Извлеки данные и верни ТОЛЬКО валидный JSON-объект следующей структуры:
                         {
                           "shopName": "Название магазина или банка (например, ВТБ, 7-Eleven)",
@@ -478,7 +471,7 @@
                         const parsedData = JSON.parse(textResult);
 
                         const shopName = parsedData.shopName || "Голосовой ввод";
-                        const receiptDate = parsedData.receiptDate || "2026-10-22";
+                        const receiptDate = parsedData.receiptDate || "2026-10-24";
                         const items = parsedData.items || [];
                         const createdAt = new Date().toISOString();
 
@@ -639,7 +632,7 @@
                 const parsedData = JSON.parse(textResult);
 
                 const shopName = parsedData.shopName || "Не указано";
-                const receiptDate = parsedData.receiptDate || "2026-10-22";
+                const receiptDate = parsedData.receiptDate || "2026-10-24";
                 const items = parsedData.items || [];
                 const createdAt = new Date().toISOString();
 
@@ -802,7 +795,7 @@
             const targetCurrency = document.getElementById('dashboard-currency').value;
             const chartType = document.getElementById('chart-type').value;
             
-            const latestRates = await getHistoricalRates("2026-10-22");
+            const latestRates = await getHistoricalRates("2026-10-24");
             const rubToTargetRate = latestRates[targetCurrency] || 1;
 
             const filteredItems = filteredByPeriod.filter(item => {
