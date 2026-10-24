@@ -10,6 +10,14 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Иконки FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Перехватчик ошибок для отладки на PWA -->
+    <script>
+        window.addEventListener('error', function(e) {
+            console.error("Global error:", e.message);
+        });
+    </script>
+
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 </head>
@@ -192,11 +200,6 @@
 
     <!-- Логика приложения -->
     <script type="module">
-
-        window.onerror = function(msg, url, line) {
-            alert("Ошибка PWA: " + msg + " (строка " + line + ")");
-        };
-        
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, getDoc, setDoc, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
@@ -337,9 +340,8 @@
                     return data;
                 } catch (err) {
                     if (attempt === maxRetries) {
-                        throw err; // Исчерпали все попытки
+                        throw err;
                     }
-                    // Ждем delaySec секунд перед повтором
                     await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
                 }
             }
@@ -363,7 +365,6 @@
                     return;
                 }
                 mediaRecorder.onstop = async () => {
-                    // Останавливаем треки микрофона
                     mediaRecorder.stream.getTracks().forEach(track => track.stop());
                     const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                     const reader = new FileReader();
