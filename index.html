@@ -15,183 +15,322 @@
     <style>
         body {
             padding-top: env(safe-area-inset-top);
+            padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+            -webkit-tap-highlight-color: transparent;
+        }
+        .bottom-nav {
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        /* Скрытие скроллбара для горизонтальных фильтров */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
         }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-800 font-sans antialiased min-h-screen pb-12">
+<body class="bg-slate-100 text-slate-800 font-sans antialiased min-h-screen">
 
     <!-- Экран авторизации -->
     <div id="auth-screen" class="fixed inset-0 bg-slate-900 z-50 flex items-center justify-center p-4 hidden">
-        <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+        <div class="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
             <h2 class="text-2xl font-bold text-slate-900 mb-2 text-center">Вход в кошелек</h2>
             <p class="text-xs text-slate-500 mb-6 text-center">Ваши чеки и финансы под защитой Firebase</p>
-            <div id="auth-error" class="bg-red-50 text-red-600 text-xs p-3 rounded-lg mb-4 hidden"></div>
+            <div id="auth-error" class="bg-red-50 text-red-600 text-xs p-3 rounded-xl mb-4 hidden"></div>
             <input type="email" id="auth-email" placeholder="Email" class="w-full border border-slate-200 rounded-xl px-4 py-3 mb-3 text-sm focus:outline-none focus:border-blue-500">
             <input type="password" id="auth-password" placeholder="Пароль" class="w-full border border-slate-200 rounded-xl px-4 py-3 mb-4 text-sm focus:outline-none focus:border-blue-500">
-            <button onclick="handleAuth()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-xl transition text-sm mb-3">Войти / Регистрация</button>
+            <button onclick="handleAuth()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition text-sm">Войти / Регистрация</button>
         </div>
     </div>
 
     <!-- Экран ввода API-ключа -->
-    <div id="apikey-screen" class="fixed inset-0 bg-slate-900 z-40 flex items-center justify-center p-4 hidden">
-        <div class="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+    <div id="apikey-screen" class="fixed inset-0 bg-slate-900/90 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
             <h2 class="text-xl font-bold text-slate-900 mb-2 text-center">Привязка Gemini API</h2>
             <p class="text-xs text-slate-500 mb-4 text-center">Введите ваш личный ключ из Google AI Studio.</p>
-            <input type="text" id="user-gemini-key" placeholder="AQ.Ab8RN6..." class="w-full border border-slate-200 rounded-xl px-4 py-3 mb-4 text-sm focus:outline-none focus:border-blue-500 font-mono">
-            <button onclick="saveUserApiKey()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 rounded-xl transition text-sm">Сохранить ключ</button>
+            <input type="text" id="user-gemini-key" placeholder="AIzaSy..." class="w-full border border-slate-200 rounded-xl px-4 py-3 mb-4 text-sm focus:outline-none focus:border-blue-500 font-mono">
+            <div class="flex gap-2">
+                <button onclick="document.getElementById('apikey-screen').classList.add('hidden')" class="flex-1 bg-slate-100 text-slate-600 font-medium py-3 rounded-xl transition text-sm">Закрыть</button>
+                <button onclick="saveUserApiKey()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition text-sm">Сохранить</button>
+            </div>
         </div>
     </div>
 
-    <!-- Модальное окно подтверждения чека -->
+    <!-- Модальное окно подтверждения чека перед отправкой -->
     <div id="receipt-modal" class="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 hidden">
-        <div class="bg-white rounded-2xl p-5 w-full max-w-sm shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div class="bg-white rounded-3xl p-5 w-full max-w-sm shadow-2xl max-h-[90vh] overflow-y-auto">
             <h3 class="font-bold text-slate-800 text-base mb-3">Подтверждение чека</h3>
             
             <!-- Превью фото -->
-            <div class="mb-3 bg-slate-100 rounded-xl overflow-hidden h-48 flex items-center justify-center border border-slate-200">
+            <div class="mb-3 bg-slate-100 rounded-2xl overflow-hidden h-52 flex items-center justify-center border border-slate-200">
                 <img id="modal-img-preview" src="" alt="Чек" class="max-h-full object-contain">
             </div>
 
             <!-- Дополнительное поле для текстовой заметки -->
             <div class="mb-4">
-                <label class="block text-xs font-semibold text-slate-600 mb-1">Заметка / Инструкция для ИИ:</label>
+                <label class="block text-xs font-semibold text-slate-600 mb-1">Заметка / Инструкция для ИИ (необязательно):</label>
                 <textarea id="modal-prompt-note" rows="2" placeholder="Например: 'не учитывай две первые позиции из чека'" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500"></textarea>
             </div>
 
             <div class="flex gap-2">
-                <button onclick="cancelReceiptUpload()" class="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium py-2.5 rounded-xl transition text-xs">Отмена</button>
-                <button onclick="confirmReceiptUpload()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 rounded-xl transition text-xs">Обработать</button>
+                <button onclick="cancelReceiptUpload()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-3 rounded-xl transition text-xs">Отмена</button>
+                <button onclick="confirmReceiptUpload()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition text-xs">Отправить в ИИ</button>
             </div>
         </div>
     </div>
 
     <!-- Основной интерфейс -->
-    <div id="app-screen" class="max-w-md mx-auto p-4 hidden">
+    <div id="app-screen" class="max-w-md mx-auto px-4 pt-2 hidden">
         <!-- Шапка -->
-        <header class="flex justify-between items-center my-4">
+        <header class="flex justify-between items-center py-3 mb-2">
             <div>
-                <h1 class="text-xl font-extrabold text-slate-900">Мультивалютный AI Кошелек</h1>
-                <p class="text-xs text-slate-500" id="user-email-display"></p>
+                <h1 class="text-lg font-extrabold text-slate-900 leading-tight">AI Кошелек</h1>
+                <p class="text-[11px] text-slate-400" id="user-email-display"></p>
             </div>
-            <div class="flex items-center gap-3">
-                <button onclick="openSettings()" class="text-slate-400 hover:text-blue-600 text-sm" title="Настройки API"><i class="fa-solid fa-key"></i></button>
-                <button onclick="logout()" class="text-slate-400 hover:text-red-500 text-sm" title="Выйти"><i class="fa-solid fa-right-from-bracket"></i></button>
+            <div class="flex items-center gap-2">
+                <button onclick="openSettings()" class="w-9 h-9 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-500 hover:text-blue-600 text-sm transition" title="Настройки API"><i class="fa-solid fa-key"></i></button>
+                <button onclick="logout()" class="w-9 h-9 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-500 hover:text-red-500 text-sm transition" title="Выйти"><i class="fa-solid fa-right-from-bracket"></i></button>
             </div>
         </header>
 
-        <!-- Блок добавления чека -->
-        <div class="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-5 text-white shadow-lg mb-4">
-            <h2 class="font-bold text-lg mb-1">Новый чек</h2>
-            <p class="text-xs text-blue-100 mb-3">Выберите валюту, сфотографируйте или загрузите чек.</p>
-            
-            <div class="mb-3">
-                <label class="block text-xs text-blue-100 mb-1">Валюта чека:</label>
-                <select id="receipt-currency" class="w-full bg-white text-slate-800 text-sm font-medium rounded-xl px-3 py-2 border-none focus:outline-none">
-                    <option value="RUB">RUB (Российский рубль)</option>
-                    <option value="THB" selected>THB (Тайский бат)</option>
-                    <option value="VND">VND (Вьетнамский донг)</option>
-                    <option value="IDR">IDR (Индонезийская рупия)</option>
-                    <option value="USD">USD (Доллар США)</option>
-                    <option value="EUR">EUR (Евро)</option>
-                    <option value="KZT">KZT (Казахстанский тенге)</option>
-                </select>
-            </div>
-
-            <label class="block w-full bg-white text-blue-600 hover:bg-blue-50 font-semibold text-center py-3 rounded-xl cursor-pointer transition shadow-sm text-sm">
-                <i class="fa-solid fa-camera mr-2"></i> Сделать фото / Выбрать из галереи
-                <input type="file" accept="image/*" id="receipt-input" class="hidden" onchange="handleFileSelected(event)">
-            </label>
-        </div>
-
-        <!-- Блок голосового ввода без чека -->
-        <div class="bg-white rounded-2xl p-4 shadow-sm mb-6 border border-slate-200/60 flex items-center justify-between">
-            <div>
-                <h3 class="font-bold text-slate-800 text-xs uppercase tracking-wider">Голосовой ввод трат</h3>
-                <p class="text-[11px] text-slate-400">Например: «15 октября заправился на 328 бат»</p>
-            </div>
-            <button onclick="toggleVoiceExpenseRecording()" id="voice-expense-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs font-semibold transition flex items-center gap-2">
-                <i class="fa-solid fa-microphone"></i> <span id="voice-expense-text">Записать</span>
-            </button>
-        </div>
-
-        <!-- Управление категориями -->
-        <div class="bg-white rounded-2xl p-4 shadow-sm mb-6">
-            <h3 class="font-bold text-slate-800 text-xs uppercase tracking-wider mb-2">Ваши категории трат</h3>
-            <div id="categories-container" class="flex flex-wrap gap-2 mb-3"></div>
-            <div class="flex gap-2">
-                <input type="text" id="new-category-input" placeholder="Новая категория..." class="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-blue-500">
-                <button onclick="addCategory()" class="bg-slate-900 hover:bg-slate-800 text-white text-xs px-4 py-2 rounded-xl transition">Добавить</button>
-            </div>
-        </div>
-
-        <!-- Прелоадер -->
-        <div id="loading-box" class="bg-white rounded-2xl p-6 text-center shadow-sm mb-6 hidden">
-            <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent mb-3"></div>
-            <p id="loading-text" class="text-sm font-medium text-slate-700">Анализ чека...</p>
-        </div>
-
-        <!-- Дашборд и аналитика -->
-        <div class="bg-white rounded-2xl p-5 shadow-sm mb-6">
-            <div class="flex flex-col gap-3 mb-4">
-                <div class="flex justify-between items-center">
-                    <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider">Дашборд трат</h3>
-                    <span id="total-sum" class="text-lg font-extrabold text-blue-600">0</span>
+        <!-- ==================== РАЗДЕЛ 1: ГЛАВНОЕ ==================== -->
+        <div id="section-home" class="space-y-4">
+            <!-- Блок добавления чека -->
+            <div class="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-3xl p-5 text-white shadow-lg">
+                <div class="flex justify-between items-start mb-2">
+                    <div>
+                        <h2 class="font-bold text-lg">Сканировать чек</h2>
+                        <p class="text-xs text-blue-100">ИИ сам переведет позиции и распределит по категориям</p>
+                    </div>
+                    <i class="fa-solid fa-receipt text-2xl text-blue-200/60"></i>
                 </div>
-
-                <div class="flex bg-slate-100 p-1 rounded-xl">
-                    <button id="tab-mode-category" onclick="setDashboardMode('category')" class="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-white text-slate-900 shadow-sm transition">По категориям</button>
-                    <button id="tab-mode-shop" onclick="setDashboardMode('shop')" class="flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-500 transition">По магазинам</button>
-                </div>
-
-                <div class="grid grid-cols-3 gap-2">
-                    <select id="period-filter" onchange="renderDashboard()" class="text-xs bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-slate-700 focus:outline-none">
-                        <option value="all">За всё время</option>
-                        <option value="month" selected>Текущий месяц</option>
-                        <option value="prev_month">Прошлый месяц</option>
-                        <option value="days30">Последние 30 дней</option>
-                        <option value="year">Текущий год</option>
-                    </select>
-                    <select id="chart-type" onchange="renderDashboard()" class="text-xs bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-slate-700 focus:outline-none">
-                        <option value="doughnut" selected>Круговая</option>
-                        <option value="bar_day">Столбцы (дни)</option>
-                        <option value="bar_week">Столбцы (недели)</option>
-                        <option value="bar_month">Столбцы (месяцы)</option>
-                    </select>
-                    <select id="dashboard-currency" onchange="renderDashboard()" class="text-xs bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-slate-700 focus:outline-none">
-                        <option value="RUB" selected>RUB</option>
-                        <option value="THB">THB</option>
-                        <option value="VND">VND</option>
-                        <option value="IDR">IDR</option>
-                        <option value="USD">USD</option>
-                        <option value="EUR">EUR</option>
+                
+                <div class="my-3">
+                    <label class="block text-[11px] uppercase tracking-wider text-blue-100 font-semibold mb-1">Валюта чека:</label>
+                    <select id="receipt-currency" class="w-full bg-white/95 text-slate-900 text-sm font-semibold rounded-xl px-3 py-2.5 border-none focus:outline-none shadow-sm">
+                        <option value="RUB">🇷🇺 RUB (Российский рубль)</option>
+                        <option value="THB" selected>🇹🇭 THB (Тайский бат)</option>
+                        <option value="VND">🇻🇳 VND (Вьетнамский донг)</option>
+                        <option value="IDR">🇮🇩 IDR (Индонезийская рупия)</option>
+                        <option value="USD">🇺🇸 USD (Доллар США)</option>
+                        <option value="EUR">🇪🇺 EUR (Евро)</option>
+                        <option value="KZT">🇰🇿 KZT (Казахстанский тенге)</option>
                     </select>
                 </div>
 
-                <div class="mt-2">
+                <label class="block w-full bg-white text-blue-700 hover:bg-blue-50 active:scale-[0.99] font-bold text-center py-3.5 rounded-2xl cursor-pointer transition shadow-md text-sm">
+                    <i class="fa-solid fa-camera mr-2"></i> Сфотографировать / Галерея
+                    <input type="file" accept="image/*" id="receipt-input" class="hidden" onchange="handleFileSelected(event)">
+                </label>
+            </div>
+
+            <!-- Блок голосового ввода без чека -->
+            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <h3 class="font-bold text-slate-800 text-sm">Голосовой ввод трат</h3>
+                        <p class="text-xs text-slate-400 mt-0.5">Скажите, например: «Сегодня заправился на 320 бат»</p>
+                    </div>
+                    <button onclick="toggleVoiceExpenseRecording()" id="voice-expense-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-2xl text-xs font-bold transition flex items-center gap-2 shrink-0 shadow-sm">
+                        <i class="fa-solid fa-microphone"></i> <span id="voice-expense-text">Записать</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Модуль текущего статуса отправки и данных запроса в ИИ -->
+            <div id="ai-job-panel" class="bg-white rounded-3xl p-5 shadow-md border border-blue-200 hidden">
+                <div class="flex justify-between items-center mb-3">
+                    <div class="flex items-center gap-2">
+                        <div id="ai-job-spinner" class="animate-spin rounded-full h-5 w-5 border-2 border-blue-600 border-t-transparent"></div>
+                        <i id="ai-job-error-icon" class="fa-solid fa-triangle-exclamation text-red-500 text-lg hidden"></i>
+                        <h3 id="ai-job-status-title" class="font-bold text-sm text-slate-800">Отправка запроса в ИИ...</h3>
+                    </div>
+                    <button onclick="closeAiJobPanel()" id="ai-job-close-btn" class="text-xs text-slate-400 hover:text-slate-600 hidden">
+                        <i class="fa-solid fa-xmark text-base"></i>
+                    </button>
+                </div>
+
+                <!-- Превью отправляемых медиаданных (Фото или Аудио) -->
+                <div id="ai-job-image-box" class="mb-3 bg-slate-50 rounded-2xl overflow-hidden h-40 flex items-center justify-center border border-slate-200 hidden">
+                    <img id="ai-job-img" src="" alt="Отправляемый чек" class="max-h-full object-contain">
+                </div>
+
+                <div id="ai-job-audio-box" class="mb-3 bg-slate-50 p-3 rounded-2xl border border-slate-200 hidden">
+                    <p class="text-[11px] font-semibold text-slate-500 mb-1.5"><i class="fa-solid fa-volume-high mr-1"></i> Ваша голосовая запись:</p>
+                    <audio id="ai-job-audio" controls class="w-full h-9"></audio>
+                </div>
+
+                <!-- Отображение промпта -->
+                <div class="mb-3">
                     <div class="flex justify-between items-center mb-1">
-                        <span class="text-[11px] font-bold text-slate-500 uppercase">Фильтр для графиков:</span>
-                        <div class="space-x-2">
-                            <button onclick="toggleAllFilters(true)" class="text-[10px] text-blue-600 hover:underline">Все</button>
-                            <button onclick="toggleAllFilters(false)" class="text-[10px] text-slate-400 hover:underline">Сбросить</button>
+                        <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Промпт запроса к ИИ:</span>
+                    </div>
+                    <pre id="ai-job-prompt" class="text-[11px] text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-200 whitespace-pre-wrap max-h-36 overflow-y-auto font-mono leading-relaxed"></pre>
+                </div>
+
+                <!-- Блок ошибки и кнопка "Попробовать еще раз" -->
+                <div id="ai-job-error-box" class="bg-red-50 border border-red-200 rounded-2xl p-3.5 hidden">
+                    <p class="text-xs font-bold text-red-700 mb-1">Ошибка ответа ИИ:</p>
+                    <p id="ai-job-error-msg" class="text-xs text-red-600 mb-3 break-words"></p>
+                    <div class="flex gap-2">
+                        <button onclick="retryAiJob()" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm">
+                            <i class="fa-solid fa-rotate-right"></i> Попробовать еще раз
+                        </button>
+                        <button onclick="closeAiJobPanel()" class="bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 font-semibold py-2.5 px-3 rounded-xl text-xs transition">
+                            Отменить
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== РАЗДЕЛ 2: ДАШБОРДЫ ==================== -->
+        <div id="section-dashboard" class="space-y-4 hidden">
+            <!-- Главная карточка итогов и выбора периода -->
+            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Итого расходов</span>
+                        <span id="total-sum" class="text-2xl font-black text-slate-900">0.00 RUB</span>
+                        <span id="total-count-badge" class="block text-[11px] text-slate-400 mt-0.5">0 позиций</span>
+                    </div>
+                    <select id="dashboard-currency" onchange="renderDashboard()" class="text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 rounded-xl px-3 py-2 focus:outline-none">
+                        <option value="RUB" selected>RUB ₽</option>
+                        <option value="THB">THB ฿</option>
+                        <option value="USD">USD $</option>
+                        <option value="EUR">EUR €</option>
+                        <option value="VND">VND ₫</option>
+                        <option value="IDR">IDR Rp</option>
+                        <option value="KZT">KZT ₸</option>
+                    </select>
+                </div>
+
+                <!-- Удобные кнопки-таблетки выбора периода -->
+                <div class="flex gap-1.5 overflow-x-auto no-scrollbar pb-1" id="dashboard-period-pills">
+                    <button onclick="setDashboardPeriod('month')" data-period="month" class="dash-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900 text-white transition">Этот месяц</button>
+                    <button onclick="setDashboardPeriod('prev_month')" data-period="prev_month" class="dash-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Прошлый месяц</button>
+                    <button onclick="setDashboardPeriod('days30')" data-period="days30" class="dash-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">30 дней</button>
+                    <button onclick="setDashboardPeriod('year')" data-period="year" class="dash-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Год</button>
+                    <button onclick="setDashboardPeriod('all')" data-period="all" class="dash-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Всё время</button>
+                </div>
+            </div>
+
+            <!-- Настройки вида и график -->
+            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60">
+                <!-- Переключатели Группировки и Типа графика -->
+                <div class="grid grid-cols-2 gap-2 mb-4">
+                    <div class="flex bg-slate-100 p-1 rounded-xl">
+                        <button id="tab-mode-category" onclick="setDashboardMode('category')" class="flex-1 py-1.5 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition">Категории</button>
+                        <button id="tab-mode-shop" onclick="setDashboardMode('shop')" class="flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-500 transition">Магазины</button>
+                    </div>
+                    <select id="chart-type" onchange="renderDashboard()" class="text-xs font-semibold bg-slate-100 border-none rounded-xl px-3 py-2 text-slate-700 focus:outline-none">
+                        <option value="doughnut" selected>🍩 Круговая</option>
+                        <option value="bar_day">📊 По дням</option>
+                        <option value="bar_week">📊 По неделям</option>
+                        <option value="bar_month">📊 По месяцам</option>
+                    </select>
+                </div>
+
+                <!-- График -->
+                <div class="relative h-56 flex justify-center items-center my-2">
+                    <canvas id="expensesChart"></canvas>
+                </div>
+
+                <!-- Дружелюбные чипсы-фильтры -->
+                <div class="mt-4 pt-3 border-t border-slate-100">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Фильтр элементов:</span>
+                        <div class="space-x-3">
+                            <button onclick="toggleAllFilters(true)" class="text-xs font-semibold text-blue-600">Выбрать все</button>
+                            <button onclick="toggleAllFilters(false)" class="text-xs font-semibold text-slate-400">Сбросить</button>
                         </div>
                     </div>
-                    <div id="filter-checkboxes" class="flex flex-wrap gap-2 max-h-24 overflow-y-auto p-1 bg-slate-50 rounded-xl border border-slate-200/60 text-xs"></div>
+                    <div id="filter-chips" class="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto py-1"></div>
                 </div>
             </div>
 
-            <div class="relative h-56 flex justify-center items-center">
-                <canvas id="expensesChart"></canvas>
+            <!-- Детальная разбивка с прогресс-барами -->
+            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60">
+                <h3 class="font-bold text-slate-800 text-xs uppercase tracking-wider mb-3">Детализация расходов</h3>
+                <div id="dashboard-breakdown" class="space-y-3"></div>
             </div>
         </div>
 
-        <!-- История чеков -->
-        <div class="bg-white rounded-2xl p-5 shadow-sm">
-            <h3 class="font-bold text-slate-800 text-sm uppercase tracking-wider mb-4">История чеков и трат</h3>
+        <!-- ==================== РАЗДЕЛ 3: ИСТОРИЯ ЧЕКОВ ==================== -->
+        <div id="section-history" class="space-y-4 hidden">
+            <div class="bg-white rounded-3xl p-4 shadow-sm border border-slate-200/60 space-y-3">
+                <div class="flex justify-between items-center">
+                    <h3 class="font-bold text-slate-800 text-sm">История чеков</h3>
+                    <span id="history-receipts-count" class="text-xs font-semibold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg">0 чеков</span>
+                </div>
+
+                <!-- Фильтр по дате в истории чеков -->
+                <div>
+                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Период чеков:</label>
+                    <div class="flex gap-1.5 overflow-x-auto no-scrollbar pb-1" id="history-period-pills">
+                        <button onclick="setHistoryPeriod('all')" data-hperiod="all" class="hist-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white transition">Всё время</button>
+                        <button onclick="setHistoryPeriod('today')" data-hperiod="today" class="hist-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Сегодня</button>
+                        <button onclick="setHistoryPeriod('week')" data-hperiod="week" class="hist-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Текущая неделя</button>
+                        <button onclick="setHistoryPeriod('month')" data-hperiod="month" class="hist-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Текущий месяц</button>
+                        <button onclick="setHistoryPeriod('prev_month')" data-hperiod="prev_month" class="hist-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Прошлый месяц</button>
+                    </div>
+                </div>
+
+                <!-- Сортировка чеков -->
+                <div class="flex items-center justify-between pt-2 border-t border-slate-100">
+                    <span class="text-xs font-semibold text-slate-500"><i class="fa-solid fa-arrow-down-wide-short mr-1"></i> Сортировка:</span>
+                    <div class="flex bg-slate-100 p-1 rounded-xl">
+                        <button id="sort-by-receipt-date" onclick="setHistorySort('receiptDate')" class="px-2.5 py-1 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition">По дате чека</button>
+                        <button id="sort-by-created-at" onclick="setHistorySort('createdAt')" class="px-2.5 py-1 text-xs font-semibold rounded-lg text-slate-500 transition">По дате загрузки</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Список чеков -->
             <div id="receipts-list" class="space-y-3">
-                <p class="text-xs text-slate-400 text-center py-4">Пока нет сохраненных записей</p>
+                <p class="text-xs text-slate-400 text-center py-6">Пока нет сохраненных записей</p>
+            </div>
+        </div>
+
+        <!-- ==================== РАЗДЕЛ 4: КАТЕГОРИИ ==================== -->
+        <div id="section-categories" class="space-y-4 hidden">
+            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60">
+                <h3 class="font-bold text-slate-800 text-sm mb-1">Настройка категорий</h3>
+                <p class="text-xs text-slate-400 mb-4">ИИ автоматически распределяет товары из чеков и голосовых записей строго по этому списку.</p>
+                
+                <div class="flex gap-2 mb-4">
+                    <input type="text" id="new-category-input" placeholder="Название новой категории..." class="flex-1 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-blue-500">
+                    <button onclick="addCategory()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shrink-0">Добавить</button>
+                </div>
+
+                <div id="categories-container" class="flex flex-wrap gap-2"></div>
             </div>
         </div>
     </div>
+
+    <!-- Нижнее навигационное меню -->
+    <nav id="bottom-nav" class="bottom-nav fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-slate-200/80 z-40 hidden">
+        <div class="max-w-md mx-auto grid grid-cols-4 px-2 py-1.5">
+            <button onclick="switchSection('home')" id="nav-btn-home" class="flex flex-col items-center justify-center py-1.5 text-blue-600 transition">
+                <i class="fa-solid fa-Wand-magic-sparkles fa-wand-magic-sparkles text-lg mb-0.5"></i>
+                <span class="text-[10px] font-bold">Главное</span>
+            </button>
+            <button onclick="switchSection('dashboard')" id="nav-btn-dashboard" class="flex flex-col items-center justify-center py-1.5 text-slate-400 hover:text-slate-600 transition">
+                <i class="fa-solid fa-chart-pie text-lg mb-0.5"></i>
+                <span class="text-[10px] font-medium">Дашборды</span>
+            </button>
+            <button onclick="switchSection('history')" id="nav-btn-history" class="flex flex-col items-center justify-center py-1.5 text-slate-400 hover:text-slate-600 transition">
+                <i class="fa-solid fa-receipt text-lg mb-0.5"></i>
+                <span class="text-[10px] font-medium">История</span>
+            </button>
+            <button onclick="switchSection('categories')" id="nav-btn-categories" class="flex flex-col items-center justify-center py-1.5 text-slate-400 hover:text-slate-600 transition">
+                <i class="fa-solid fa-tags text-lg mb-0.5"></i>
+                <span class="text-[10px] font-medium">Категории</span>
+            </button>
+        </div>
+    </nav>
 
     <!-- Логика приложения -->
     <script type="module">
@@ -221,13 +360,60 @@
         let ratesCache = {};
         
         let pendingFile = null;
+        let pendingFileDataUrl = null;
+
+        // Состояние дашборда
         let dashboardMode = 'category';
+        let dashboardPeriod = 'month';
         let selectedFilterKeys = new Set();
+
+        // Состояние истории чеков
+        let historyPeriod = 'all';
+        let historySort = 'receiptDate'; // По дефолту всегда по дате самого чека
+
+        // Состояние текущего запроса к ИИ (для отображения и кнопки "Попробовать еще раз")
+        let lastAiJob = null;
 
         // Переменные для аудио (голосовой ввод трат)
         let mediaRecorder = null;
         let audioChunks = [];
         let isRecordingVoiceExpense = false;
+
+        const CHART_COLORS = ['#2563eb', '#db2777', '#059669', '#d97706', '#7c3aed', '#0891b2', '#e11d48', '#4f46e5', '#65a30d', '#475569'];
+
+        // 1. Получение реальной локальной даты устройства в формате YYYY-MM-DD
+        function getTodayDateStr() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        // Переключение разделов меню
+        window.switchSection = function(sectionName) {
+            const sections = ['home', 'dashboard', 'history', 'categories'];
+            sections.forEach(s => {
+                const secEl = document.getElementById(`section-${s}`);
+                const btnEl = document.getElementById(`nav-btn-${s}`);
+                if (s === sectionName) {
+                    secEl.classList.remove('hidden');
+                    btnEl.className = "flex flex-col items-center justify-center py-1.5 text-blue-600 transition";
+                    btnEl.querySelector('span').classList.replace('font-medium', 'font-bold');
+                } else {
+                    secEl.classList.add('hidden');
+                    btnEl.className = "flex flex-col items-center justify-center py-1.5 text-slate-400 hover:text-slate-600 transition";
+                    btnEl.querySelector('span').classList.replace('font-bold', 'font-medium');
+                }
+            });
+
+            if (sectionName === 'dashboard') {
+                renderDashboard();
+            } else if (sectionName === 'history') {
+                renderList();
+            }
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
 
         window.handleAuth = async function() {
             const email = document.getElementById('auth-email').value;
@@ -265,6 +451,7 @@
                         currentUserApiKey = userDoc.data().geminiApiKey;
                         document.getElementById('apikey-screen').classList.add('hidden');
                         document.getElementById('app-screen').classList.remove('hidden');
+                        document.getElementById('bottom-nav').classList.remove('hidden');
                         loadData();
                     } else {
                         document.getElementById('apikey-screen').classList.remove('hidden');
@@ -274,10 +461,10 @@
                     document.getElementById('auth-screen').classList.remove('hidden');
                 }
             } else {
-                // Показываем экран авторизации, если сессии нет (например, при запуске с рабочего стола iOS)
                 document.getElementById('auth-screen').classList.remove('hidden');
                 document.getElementById('apikey-screen').classList.add('hidden');
                 document.getElementById('app-screen').classList.add('hidden');
+                document.getElementById('bottom-nav').classList.add('hidden');
             }
         });
 
@@ -290,6 +477,7 @@
 
             document.getElementById('apikey-screen').classList.add('hidden');
             document.getElementById('app-screen').classList.remove('hidden');
+            document.getElementById('bottom-nav').classList.remove('hidden');
             loadData();
         };
 
@@ -324,7 +512,7 @@
         }
 
         // Запрос к Gemini с автоповтором
-        async function callGeminiWithRetry(payload, maxRetries = 2, delaySec = 5) {
+        async function callGeminiWithRetry(payload, maxRetries = 2, delaySec = 4) {
             for (let attempt = 0; attempt <= maxRetries; attempt++) {
                 try {
                     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${currentUserApiKey}`, {
@@ -343,7 +531,102 @@
             }
         }
 
-        // Запись аудио
+        // ==================== ОТОБРАЖЕНИЕ И ОБРАБОТКА ЗАПРОСА В ИИ ====================
+        function showAiJobPanel(job) {
+            const panel = document.getElementById('ai-job-panel');
+            const imgBox = document.getElementById('ai-job-image-box');
+            const imgEl = document.getElementById('ai-job-img');
+            const audioBox = document.getElementById('ai-job-audio-box');
+            const audioEl = document.getElementById('ai-job-audio');
+            const promptEl = document.getElementById('ai-job-prompt');
+
+            panel.classList.remove('hidden');
+            document.getElementById('ai-job-spinner').classList.remove('hidden');
+            document.getElementById('ai-job-error-icon').classList.add('hidden');
+            document.getElementById('ai-job-close-btn').classList.add('hidden');
+            document.getElementById('ai-job-error-box').classList.add('hidden');
+            document.getElementById('ai-job-status-title').innerText = job.type === 'receipt'
+                ? 'ИИ анализирует фото чека...'
+                : 'ИИ обрабатывает голосовую запись...';
+
+            if (job.type === 'receipt' && job.imagePreviewUrl) {
+                imgEl.src = job.imagePreviewUrl;
+                imgBox.classList.remove('hidden');
+                audioBox.classList.add('hidden');
+            } else if (job.type === 'voice' && job.audioUrl) {
+                audioEl.src = job.audioUrl;
+                audioBox.classList.remove('hidden');
+                imgBox.classList.add('hidden');
+            }
+
+            promptEl.innerText = job.prompt;
+        }
+
+        function showAiJobError(errMsg) {
+            document.getElementById('ai-job-spinner').classList.add('hidden');
+            document.getElementById('ai-job-error-icon').classList.remove('hidden');
+            document.getElementById('ai-job-close-btn').classList.remove('hidden');
+            document.getElementById('ai-job-status-title').innerText = 'Не удалось обработать запрос';
+            document.getElementById('ai-job-error-msg').innerText = errMsg;
+            document.getElementById('ai-job-error-box').classList.remove('hidden');
+        }
+
+        window.closeAiJobPanel = function() {
+            document.getElementById('ai-job-panel').classList.add('hidden');
+            lastAiJob = null;
+        };
+
+        window.retryAiJob = async function() {
+            if (!lastAiJob) return;
+            await executeAiJob(lastAiJob);
+        };
+
+        async function executeAiJob(job) {
+            lastAiJob = job;
+            showAiJobPanel(job);
+
+            try {
+                const data = await callGeminiWithRetry(job.payload);
+                let textResult = data.candidates[0].content.parts[0].text;
+                textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
+                const parsedData = JSON.parse(textResult);
+
+                const todayStr = getTodayDateStr();
+                const shopName = parsedData.shopName || (job.type === 'voice' ? "Голосовой ввод" : "Не указано");
+                const receiptDate = parsedData.receiptDate || todayStr;
+                const items = parsedData.items || [];
+                const createdAt = new Date().toISOString();
+
+                const historicalRates = await getHistoricalRates(receiptDate);
+
+                for (let item of items) {
+                    const originalPrice = Number(item.price) || 0;
+                    const currency = job.type === 'receipt' ? job.selectedCurrency : (item.currency || 'RUB');
+                    const rateToRub = historicalRates[currency] ? (1 / historicalRates[currency]) : 1;
+                    const priceInRub = originalPrice * rateToRub;
+
+                    await addDoc(collection(db, `users/${currentUser.uid}/items`), {
+                        name: item.name || item.originalName,
+                        originalName: item.originalName || item.name,
+                        originalPrice: originalPrice,
+                        currency: currency,
+                        priceRub: priceInRub,
+                        category: userCategories.includes(item.category) ? item.category : userCategories[0],
+                        shop: shopName,
+                        receiptDate: receiptDate,
+                        createdAt: createdAt
+                    });
+                }
+
+                await loadData();
+                // Если все загрузилось успешно — закрываем модуль с параметрами
+                closeAiJobPanel();
+            } catch (err) {
+                showAiJobError(err.message || 'Высокая нагрузка на сервер ИИ или сбой сети. Попробуйте еще раз.');
+            }
+        }
+
+        // ==================== АУДИОЗАПИСЬ (ГОЛОСОВОЙ ВВОД) ====================
         async function startAudioRecording() {
             audioChunks = [];
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -361,16 +644,16 @@
                     return;
                 }
                 mediaRecorder.onstop = async () => {
-                    // Берем реальный формат записи устройства (важно для совместимости с iPhone/iOS)
                     const rawMimeType = mediaRecorder.mimeType || 'audio/mp4';
                     const cleanMimeType = rawMimeType.split(';')[0];
                     
                     mediaRecorder.stream.getTracks().forEach(track => track.stop());
                     const audioBlob = new Blob(audioChunks, { type: cleanMimeType });
+                    const audioUrl = URL.createObjectURL(audioBlob);
                     const reader = new FileReader();
                     reader.onloadend = () => {
                         const base64Audio = reader.result.split(',')[1];
-                        resolve({ base64: base64Audio, mimeType: cleanMimeType });
+                        resolve({ base64: base64Audio, mimeType: cleanMimeType, audioUrl: audioUrl });
                     };
                     reader.readAsDataURL(audioBlob);
                 };
@@ -378,7 +661,6 @@
             });
         }
 
-        // Голосовой ввод трат (без чека)
         window.toggleVoiceExpenseRecording = async function() {
             const btn = document.getElementById('voice-expense-btn');
             const textSpan = document.getElementById('voice-expense-text');
@@ -391,81 +673,153 @@
                 try {
                     await startAudioRecording();
                     isRecordingVoiceExpense = true;
-                    btn.className = "bg-red-600 hover:bg-red-700 text-white px-4 py-2.5 rounded-xl text-xs font-semibold transition flex items-center gap-2 animate-pulse";
-                    textSpan.innerText = 'Слушаю... (Стоп)';
+                    btn.className = "bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-2xl text-xs font-bold transition flex items-center gap-2 animate-pulse shrink-0 shadow-sm";
+                    textSpan.innerText = 'Стоп';
                 } catch (err) {
                     alert('Не удалось получить доступ к микрофону: ' + err.message);
                 }
             } else {
                 isRecordingVoiceExpense = false;
-                btn.className = "bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl text-xs font-semibold transition flex items-center gap-2";
+                btn.className = "bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-2xl text-xs font-bold transition flex items-center gap-2 shrink-0 shadow-sm";
                 textSpan.innerText = 'Записать';
-
-                document.getElementById('loading-text').innerText = 'ИИ обрабатывает голосовую трату...';
-                document.getElementById('loading-box').classList.remove('hidden');
 
                 const audioData = await stopAudioRecording();
                 if (audioData) {
-                    try {
-                        const prompt = `Прослушай голосовое сообщение пользователя с описанием финансовой траты. 
-                        Текущая дата: 2026-10-24. Доступные пользователю категории: ${JSON.stringify(userCategories)}.
-                        Извлеки данные и верни ТОЛЬКО валидный JSON-объект следующей структуры:
-                        {
-                          "shopName": "Название магазина или банка (например, ВТБ, 7-Eleven)",
-                          "receiptDate": "YYYY-MM-DD",
-                          "items": [
-                            {"originalName": "Описание из речи", "name": "Перевод/Название на русском", "price": число_суммы, "currency": "RUB или THB или VND или IDR или USD или EUR или KZT", "category": "подходящая категория из списка"}
-                          ]
-                        }`;
+                    const todayStr = getTodayDateStr();
+                    const currentYear = new Date().getFullYear();
 
-                        const payload = {
-                            contents: [{
-                                parts: [
-                                    { text: prompt },
-                                    { inlineData: { mimeType: audioData.mimeType, data: audioData.base64 } }
-                                ]
-                            }]
-                        };
+                    const prompt = `Сегодняшняя дата: ${todayStr} (текущий год — ${currentYear}).
+Прослушай голосовое сообщение пользователя с описанием финансовой траты. 
+Если пользователь не назвал год (например, сказал "15 октября" или "сегодня"), обязательно используй ${currentYear} год (или рассчитай дату относительно ${todayStr}). Ни в коем случае не ставь 2024 год!
+Доступные пользователю категории: ${JSON.stringify(userCategories)}.
+Извлеки данные и верни ТОЛЬКО валидный JSON-объект следующей структуры:
+{
+  "shopName": "Название магазина или места (например, ВТБ, 7-Eleven, Заправка)",
+  "receiptDate": "YYYY-MM-DD",
+  "items": [
+    {"originalName": "Описание из речи", "name": "Название на русском", "price": число_суммы, "currency": "RUB или THB или VND или IDR или USD или EUR или KZT", "category": "подходящая категория из списка"}
+  ]
+}`;
 
-                        const data = await callGeminiWithRetry(payload);
-                        let textResult = data.candidates[0].content.parts[0].text;
-                        textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
-                        const parsedData = JSON.parse(textResult);
+                    const payload = {
+                        contents: [{
+                            parts: [
+                                { text: prompt },
+                                { inlineData: { mimeType: audioData.mimeType, data: audioData.base64 } }
+                            ]
+                        }]
+                    };
 
-                        const shopName = parsedData.shopName || "Голосовой ввод";
-                        const receiptDate = parsedData.receiptDate || "2026-10-24";
-                        const items = parsedData.items || [];
-                        const createdAt = new Date().toISOString();
-
-                        for (let item of items) {
-                            const originalPrice = Number(item.price) || 0;
-                            const currency = item.currency || 'RUB';
-                            const historicalRates = await getHistoricalRates(receiptDate);
-                            const rateToRub = historicalRates[currency] ? (1 / historicalRates[currency]) : 1;
-                            const priceInRub = originalPrice * rateToRub;
-
-                            await addDoc(collection(db, `users/${currentUser.uid}/items`), {
-                                name: item.name || item.originalName,
-                                originalName: item.originalName || item.name,
-                                originalPrice: originalPrice,
-                                currency: currency,
-                                priceRub: priceInRub,
-                                category: userCategories.includes(item.category) ? item.category : userCategories[0],
-                                shop: shopName,
-                                receiptDate: receiptDate,
-                                createdAt: createdAt
-                            });
-                        }
-
-                        loadData();
-                    } catch (err) {
-                        alert('Ошибка распознавания голосовой траты: ' + err.message);
-                    }
+                    await executeAiJob({
+                        type: 'voice',
+                        prompt: prompt,
+                        payload: payload,
+                        audioUrl: audioData.audioUrl
+                    });
                 }
-                document.getElementById('loading-box').classList.add('hidden');
             }
         };
 
+        // ==================== ФОТО ЧЕКА ====================
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+                reader.onerror = error => reject(error);
+            });
+        }
+
+        window.handleFileSelected = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (userCategories.length === 0) {
+                alert('Сначала добавьте хотя бы одну категорию трат в разделе «Категории»!');
+                event.target.value = '';
+                return;
+            }
+
+            pendingFile = file;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                pendingFileDataUrl = e.target.result;
+                document.getElementById('modal-img-preview').src = pendingFileDataUrl;
+                document.getElementById('modal-prompt-note').value = '';
+                document.getElementById('receipt-modal').classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+            event.target.value = '';
+        };
+
+        window.cancelReceiptUpload = function() {
+            pendingFile = null;
+            pendingFileDataUrl = null;
+            document.getElementById('receipt-modal').classList.add('hidden');
+        };
+
+        window.confirmReceiptUpload = async function() {
+            if (!pendingFile) return;
+            const file = pendingFile;
+            const previewUrl = pendingFileDataUrl;
+            const userNote = document.getElementById('modal-prompt-note').value.trim();
+            const selectedCurrency = document.getElementById('receipt-currency').value;
+            
+            document.getElementById('receipt-modal').classList.add('hidden');
+
+            const base64Image = await fileToBase64(file);
+            const todayStr = getTodayDateStr();
+            const currentYear = new Date().getFullYear();
+
+            let prompt = `Сегодняшняя дата: ${todayStr} (текущий год — ${currentYear}).
+Распознай чек. Строго соблюдай правила для даты (receiptDate):
+1. Сейчас ${currentYear} год! Если на чеке указан ${currentYear} год (или двухзначный '26'), ни в коем случае НЕ меняй его на 2024 или 2025. Внимательно отличай цифру 6 от 4.
+2. Если указан год по буддийскому календарю: полный (например, 2569) — вычти 543 (получится 2026); сокращенный двузначный (например, 69) — это тоже 2569 год (2026).
+3. Если год на чеке отсутствует (указаны только день и месяц), подставь ${currentYear} год.
+4. Приведи дату строго к формату YYYY-MM-DD. Если дату найти невозможно, верни "${todayStr}".
+
+Определи название магазина (супермаркета, торговой точки). Если название неизвестно, верни "Не указано".
+Для каждого товара укажи:
+1. originalName: оригинальное название товара с чека на исходном языке.
+2. name: перевод названия товара на русский язык.
+3. price: цена (число в валюте чека).
+4. category: распредели строго по одной из созданных пользователем категорий: ${JSON.stringify(userCategories)}.`;
+
+            if (userNote) {
+                prompt += `\n\nВАЖНОЕ УКАЗАНИЕ ОТ ПОЛЬЗОВАТЕЛЯ К ЭТОМУ ЧЕКУ: "${userNote}". Обязательно учти это при разборе позиций и сумм!`;
+            }
+
+            prompt += `\n\nВерни ответ ТОЛЬКО в формате валидного JSON-объекта без лишнего текста следующей структуры:
+{
+  "shopName": "Название магазина",
+  "receiptDate": "YYYY-MM-DD",
+  "items": [
+    {"originalName": "...", "name": "...", "price": 45.00, "category": "${userCategories[0]}"}
+  ]
+}`;
+
+            const payload = {
+                contents: [{
+                    parts: [
+                        { text: prompt },
+                        { inlineData: { mimeType: file.type, data: base64Image } }
+                    ]
+                }]
+            };
+
+            pendingFile = null;
+            pendingFileDataUrl = null;
+
+            await executeAiJob({
+                type: 'receipt',
+                prompt: prompt,
+                payload: payload,
+                imagePreviewUrl: previewUrl,
+                selectedCurrency: selectedCurrency
+            });
+        };
+
+        // ==================== КАТЕГОРИИ ====================
         window.addCategory = async function() {
             const input = document.getElementById('new-category-input');
             const catName = input.value.trim();
@@ -494,139 +848,18 @@
         function renderCategories() {
             const container = document.getElementById('categories-container');
             if (userCategories.length === 0) {
-                container.innerHTML = `<p class="text-xs text-slate-400">Список пуст. Добавьте свою первую категорию ниже.</p>`;
+                container.innerHTML = `<p class="text-xs text-slate-400">Список пуст. Добавьте свою первую категорию выше.</p>`;
                 return;
             }
             container.innerHTML = userCategories.map(cat => `
-                <span class="inline-flex items-center gap-1 bg-slate-100 text-slate-700 text-xs px-3 py-1.5 rounded-xl font-medium">
+                <span class="inline-flex items-center gap-1.5 bg-slate-100 text-slate-800 text-xs px-3.5 py-2 rounded-xl font-semibold">
                     ${cat}
                     <button onclick="deleteCategory('${cat}')" class="text-slate-400 hover:text-red-500 ml-1"><i class="fa-solid fa-xmark"></i></button>
                 </span>
             `).join('');
         }
 
-        function fileToBase64(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.readAsDataURL(file);
-                reader.onload = () => resolve(reader.result.split(',')[1]);
-                reader.onerror = error => reject(error);
-            });
-        }
-
-        window.handleFileSelected = function(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-
-            if (userCategories.length === 0) {
-                alert('Сначала добавьте хотя бы одну категорию трат в настройках выше!');
-                event.target.value = '';
-                return;
-            }
-
-            pendingFile = file;
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                document.getElementById('modal-img-preview').src = e.target.result;
-                document.getElementById('modal-prompt-note').value = '';
-                document.getElementById('receipt-modal').classList.remove('hidden');
-            };
-            reader.readAsDataURL(file);
-            event.target.value = '';
-        };
-
-        window.cancelReceiptUpload = function() {
-            pendingFile = null;
-            document.getElementById('receipt-modal').classList.add('hidden');
-        };
-
-        window.confirmReceiptUpload = async function() {
-            if (!pendingFile) return;
-            const file = pendingFile;
-            const userNote = document.getElementById('modal-prompt-note').value.trim();
-            
-            document.getElementById('receipt-modal').classList.add('hidden');
-            document.getElementById('loading-text').innerText = 'Анализ чека...';
-            document.getElementById('loading-box').classList.remove('hidden');
-
-            const selectedCurrency = document.getElementById('receipt-currency').value;
-
-            try {
-                const base64Image = await fileToBase64(file);
-                
-                let prompt = `Распознай чек. Учти правила для даты: 
-                1. Если указан год по буддийскому календарю (например, 2569), переведи его в григорианский (вычти 543 года).
-                2. Если на чеке указан только день и месяц без года (или год вообще отсутствует), используй текущий год.
-                3. Приведи к формату YYYY-MM-DD. Если дату найти абсолютно невозможно, верни текущую дату.
-
-                Определи название магазина (супермаркета, торговой точки). Если название неизвестно, верни "Не указано".
-                Для каждого товара укажи:
-                1. originalName: оригинальное название товара с чека на исходном языке.
-                2. name: перевод названия товара на русский язык.
-                3. price: цена (число в валюте чека).
-                4. category: распредели строго по одной из созданных пользователем категорий: ${JSON.stringify(userCategories)}.`;
-
-                if (userNote) {
-                    prompt += `\n\nВАЖНОЕ УКАЗАНИЕ ОТ ПОЛЬЗОВАТЕЛЯ К ЭТОМУ ЧЕКУ: "${userNote}". Обязательно учти это при разборе позиций и сумм!`;
-                }
-
-                prompt += `\n\nВерни ответ ТОЛЬКО в формате валидного JSON-объекта без лишнего текста следующей структуры:
-                {
-                  "shopName": "Название магазина",
-                  "receiptDate": "YYYY-MM-DD",
-                  "items": [
-                    {"originalName": "...", "name": "...", "price": 45.00, "category": "${userCategories[0]}"}
-                  ]
-                }`;
-
-                const payload = {
-                    contents: [{
-                        parts: [
-                            { text: prompt },
-                            { inlineData: { mimeType: file.type, data: base64Image } }
-                        ]
-                    }]
-                };
-
-                const data = await callGeminiWithRetry(payload);
-                let textResult = data.candidates[0].content.parts[0].text;
-                textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
-                const parsedData = JSON.parse(textResult);
-
-                const shopName = parsedData.shopName || "Не указано";
-                const receiptDate = parsedData.receiptDate || "2026-10-24";
-                const items = parsedData.items || [];
-                const createdAt = new Date().toISOString();
-
-                const historicalRates = await getHistoricalRates(receiptDate);
-                const rateToRub = historicalRates[selectedCurrency] ? (1 / historicalRates[selectedCurrency]) : 1;
-
-                for (let item of items) {
-                    const originalPrice = Number(item.price) || 0;
-                    const priceInRub = originalPrice * rateToRub;
-
-                    await addDoc(collection(db, `users/${currentUser.uid}/items`), {
-                        name: item.name || item.originalName,
-                        originalName: item.originalName || item.name,
-                        originalPrice: originalPrice,
-                        currency: selectedCurrency,
-                        priceRub: priceInRub,
-                        category: item.category,
-                        shop: shopName,
-                        receiptDate: receiptDate,
-                        createdAt: createdAt
-                    });
-                }
-
-                loadData();
-            } catch (err) {
-                alert('Не удалось распознать чек: ' + err.message);
-            } finally {
-                pendingFile = null;
-                document.getElementById('loading-box').classList.add('hidden');
-            }
-        };
-
+        // ==================== ЗАГРУЗКА ДАННЫХ ====================
         async function loadData() {
             const catDoc = await getDoc(doc(db, `users/${currentUser.uid}/settings`, 'categories'));
             if (catDoc.exists() && catDoc.data().list) {
@@ -649,74 +882,105 @@
             renderList();
         }
 
+        // ==================== ДАШБОРД И ФИЛЬТРЫ ====================
+        window.setDashboardPeriod = function(period) {
+            dashboardPeriod = period;
+            document.querySelectorAll('.dash-period-btn').forEach(btn => {
+                if (btn.dataset.period === period) {
+                    btn.className = "dash-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900 text-white transition";
+                } else {
+                    btn.className = "dash-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition";
+                }
+            });
+            renderDashboard();
+        };
+
         window.setDashboardMode = function(mode) {
             dashboardMode = mode;
             const btnCat = document.getElementById('tab-mode-category');
             const btnShop = document.getElementById('tab-mode-shop');
 
             if (mode === 'category') {
-                btnCat.className = "flex-1 py-1.5 text-xs font-semibold rounded-lg bg-white text-slate-900 shadow-sm transition";
+                btnCat.className = "flex-1 py-1.5 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition";
                 btnShop.className = "flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-500 transition";
             } else {
-                btnShop.className = "flex-1 py-1.5 text-xs font-semibold rounded-lg bg-white text-slate-900 shadow-sm transition";
+                btnShop.className = "flex-1 py-1.5 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition";
                 btnCat.className = "flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-500 transition";
             }
             initFilters();
             renderDashboard();
         };
 
-        function initFilters() {
-            const container = document.getElementById('filter-checkboxes');
-            let keys = [];
+        function getAvailableFilterKeys() {
             if (dashboardMode === 'category') {
-                keys = [...userCategories, 'Другое'];
+                return [...userCategories, 'Другое'];
             } else {
                 let shopsSet = new Set();
                 allItems.forEach(i => shopsSet.add(i.shop || 'Не указано'));
-                keys = Array.from(shopsSet);
-                if (keys.length === 0) keys = ['Не указано'];
+                let keys = Array.from(shopsSet);
+                return keys.length > 0 ? keys : ['Не указано'];
             }
-
-            selectedFilterKeys = new Set(keys);
-
-            container.innerHTML = keys.map(k => `
-                <label class="inline-flex items-center gap-1.5 bg-white px-2 py-1 rounded-lg border border-slate-200 cursor-pointer select-none">
-                    <input type="checkbox" value="${k}" checked onchange="onFilterCheckboxChange()" class="rounded text-blue-600 focus:ring-0 w-3.5 h-3.5">
-                    <span class="text-slate-700">${k}</span>
-                </label>
-            `).join('');
         }
 
+        function initFilters() {
+            const keys = getAvailableFilterKeys();
+            selectedFilterKeys = new Set(keys);
+            renderFilterChips();
+        }
+
+        function renderFilterChips() {
+            const container = document.getElementById('filter-chips');
+            const keys = getAvailableFilterKeys();
+            container.innerHTML = keys.map(k => {
+                const isSelected = selectedFilterKeys.has(k);
+                const safeKey = k.replace(/'/g, "\\'");
+                return `
+                    <button onclick="toggleFilterChip('${safeKey}')" class="px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${isSelected ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500'}">
+                        <i class="fa-solid ${isSelected ? 'fa-check text-[10px]' : 'fa-plus text-[10px] opacity-60'}"></i>
+                        <span>${k}</span>
+                    </button>
+                `;
+            }).join('');
+        }
+
+        window.toggleFilterChip = function(key) {
+            if (selectedFilterKeys.has(key)) {
+                selectedFilterKeys.delete(key);
+            } else {
+                selectedFilterKeys.add(key);
+            }
+            renderFilterChips();
+            renderDashboard();
+        };
+
         window.toggleAllFilters = function(selectAll) {
-            const container = document.getElementById('filter-checkboxes');
-            const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-            selectedFilterKeys.clear();
-            checkboxes.forEach(cb => {
-                cb.checked = selectAll;
-                if (selectAll) selectedFilterKeys.add(cb.value);
-            });
+            const keys = getAvailableFilterKeys();
+            selectedFilterKeys = selectAll ? new Set(keys) : new Set();
+            renderFilterChips();
             renderDashboard();
         };
 
-        window.onFilterCheckboxChange = function() {
-            const container = document.getElementById('filter-checkboxes');
-            const checkboxes = container.querySelectorAll('input[type="checkbox"]');
-            selectedFilterKeys.clear();
-            checkboxes.forEach(cb => {
-                if (cb.checked) selectedFilterKeys.add(cb.value);
-            });
-            renderDashboard();
-        };
-
-        function filterItemsByPeriod(items) {
-            const period = document.getElementById('period-filter').value;
+        function filterItemsByPeriodGeneric(items, period) {
             if (period === 'all') return items;
 
-            const now = new Date();
+            const todayStr = getTodayDateStr();
+            const now = new Date(todayStr + 'T12:00:00');
+
             return items.filter(item => {
-                const itemDate = new Date(item.receiptDate || item.createdAt);
+                const rawDate = item.receiptDate || (item.createdAt ? item.createdAt.split('T')[0] : todayStr);
+                const itemDate = new Date(rawDate + 'T12:00:00');
                 if (isNaN(itemDate)) return true;
 
+                if (period === 'today') {
+                    return rawDate === todayStr;
+                }
+                if (period === 'week') {
+                    const dayOfWeek = now.getDay() || 7; // Пн = 1 ... Вс = 7
+                    const monday = new Date(now);
+                    monday.setDate(now.getDate() - dayOfWeek + 1);
+                    monday.setHours(0, 0, 0, 0);
+                    return itemDate >= monday && itemDate <= now;
+                }
                 if (period === 'month') {
                     return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
                 }
@@ -725,9 +989,9 @@
                     return itemDate.getMonth() === prevMonthDate.getMonth() && itemDate.getFullYear() === prevMonthDate.getFullYear();
                 }
                 if (period === 'days30') {
-                    const diffTime = Math.abs(now - itemDate);
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                    return diffDays <= 30;
+                    const diffTime = now - itemDate;
+                    const diffDays = diffTime / (1000 * 60 * 60 * 24);
+                    return diffDays >= 0 && diffDays <= 30;
                 }
                 if (period === 'year') {
                     return itemDate.getFullYear() === now.getFullYear();
@@ -746,18 +1010,15 @@
             if (parts.length === 3) {
                 return `${parts[2]}.${parts[1]}.${parts[0]}`;
             }
-            if (parts.length === 2) {
-                return `${parts[1]}.${parts[0]}`;
-            }
             return dateStr;
         }
 
         window.renderDashboard = async function() {
-            const filteredByPeriod = filterItemsByPeriod(allItems);
+            const filteredByPeriod = filterItemsByPeriodGeneric(allItems, dashboardPeriod);
             const targetCurrency = document.getElementById('dashboard-currency').value;
             const chartType = document.getElementById('chart-type').value;
             
-            const latestRates = await getHistoricalRates("2026-10-24");
+            const latestRates = await getHistoricalRates(getTodayDateStr());
             const rubToTargetRate = latestRates[targetCurrency] || 1;
 
             const filteredItems = filteredByPeriod.filter(item => {
@@ -772,48 +1033,77 @@
                 return sum + (priceRub * rubToTargetRate);
             }, 0);
 
-            document.getElementById('total-sum').innerText = formatMoney(totalInTarget) + ' ' + targetCurrency;
+            document.getElementById('total-sum').innerText = `${formatMoney(totalInTarget)} ${targetCurrency}`;
+            document.getElementById('total-count-badge').innerText = `Операций: ${filteredItems.length}`;
 
+            // Считаем статистику по группам для прогресс-баров и бублика
+            let statsData = {};
+            filteredItems.forEach(item => {
+                const key = dashboardMode === 'category'
+                    ? (userCategories.includes(item.category) ? item.category : 'Другое')
+                    : (item.shop || 'Не указано');
+                const priceInTarget = (Number(item.priceRub) || 0) * rubToTargetRate;
+                statsData[key] = (statsData[key] || 0) + priceInTarget;
+            });
+
+            const sortedGroupKeys = Object.keys(statsData).filter(k => statsData[k] > 0).sort((a, b) => statsData[b] - statsData[a]);
+
+            // Рендерим список с прогресс-барами под графиком
+            const breakdownEl = document.getElementById('dashboard-breakdown');
+            if (sortedGroupKeys.length === 0) {
+                breakdownEl.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">Нет данных за выбранный период</p>`;
+            } else {
+                breakdownEl.innerHTML = sortedGroupKeys.map((key, idx) => {
+                    const val = statsData[key];
+                    const percent = totalInTarget > 0 ? Math.round((val / totalInTarget) * 100) : 0;
+                    const color = CHART_COLORS[idx % CHART_COLORS.length];
+                    return `
+                        <div>
+                            <div class="flex justify-between items-center text-xs mb-1">
+                                <div class="flex items-center gap-2 font-semibold text-slate-800">
+                                    <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ${color}"></span>
+                                    <span>${key}</span>
+                                </div>
+                                <div class="text-right">
+                                    <span class="font-bold text-slate-900">${formatMoney(val)} ${targetCurrency}</span>
+                                    <span class="text-[11px] text-slate-400 ml-1">(${percent}%)</span>
+                                </div>
+                            </div>
+                            <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                <div class="h-full rounded-full transition-all duration-300" style="width: ${percent}%; background-color: ${color}"></div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // Отрисовка графика Chart.js
             const ctx = document.getElementById('expensesChart').getContext('2d');
             if (chartInstance) chartInstance.destroy();
 
             if (chartType === 'doughnut') {
-                let statsData = {};
-                if (dashboardMode === 'category') {
-                    userCategories.forEach(cat => statsData[cat] = 0);
-                    statsData['Другое'] = 0;
-                    filteredItems.forEach(item => {
-                        const cat = userCategories.includes(item.category) ? item.category : 'Другое';
-                        const priceInTarget = (Number(item.priceRub) || 0) * rubToTargetRate;
-                        statsData[cat] = (statsData[cat] || 0) + priceInTarget;
-                    });
-                } else {
-                    filteredItems.forEach(item => {
-                        const shop = item.shop || 'Не указано';
-                        const priceInTarget = (Number(item.priceRub) || 0) * rubToTargetRate;
-                        statsData[shop] = (statsData[shop] || 0) + priceInTarget;
-                    });
-                }
-
-                let activeKeys = Object.keys(statsData).filter(key => statsData[key] > 0);
-                if (activeKeys.length === 0) {
-                    activeKeys = dashboardMode === 'category' ? userCategories : ['Не указано'];
-                    activeKeys.forEach(k => statsData[k] = 0);
-                }
+                const labels = sortedGroupKeys.length > 0 ? sortedGroupKeys : ['Нет данных'];
+                const dataVals = sortedGroupKeys.length > 0 ? sortedGroupKeys.map(k => statsData[k]) : [1];
+                const bgColors = sortedGroupKeys.length > 0 ? sortedGroupKeys.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]) : ['#e2e8f0'];
 
                 chartInstance = new Chart(ctx, {
                     type: 'doughnut',
                     data: {
-                        labels: activeKeys,
+                        labels: labels,
                         datasets: [{
-                            data: activeKeys.map(k => statsData[k]),
-                            backgroundColor: ['#3b82f6', '#ec4899', '#10b981', '#f59e0b', '#64748b', '#8b5cf6', '#06b6d4', '#f43f5e']
+                            data: dataVals,
+                            backgroundColor: bgColors,
+                            borderWidth: 2,
+                            borderColor: '#ffffff'
                         }]
                     },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
-                        plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } }
+                        cutout: '65%',
+                        plugins: {
+                            legend: { display: false }
+                        }
                     }
                 });
             } else {
@@ -821,16 +1111,18 @@
 
                 filteredItems.forEach(item => {
                     const dateStr = item.receiptDate || item.createdAt.split('T')[0];
-                    const dateObj = new Date(dateStr);
+                    const dateObj = new Date(dateStr + 'T12:00:00');
                     if (isNaN(dateObj)) return;
 
                     let groupKey = dateStr;
                     if (chartType === 'bar_week') {
                         const d = new Date(dateObj);
-                        const day = d.getDay();
-                        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-                        const monday = new Date(d.setDate(diff));
-                        groupKey = monday.toISOString().split('T')[0] + '_week';
+                        const day = d.getDay() || 7;
+                        d.setDate(d.getDate() - day + 1);
+                        const y = d.getFullYear();
+                        const m = String(d.getMonth() + 1).padStart(2, '0');
+                        const dd = String(d.getDate()).padStart(2, '0');
+                        groupKey = `${y}-${m}-${dd}_week`;
                     } else if (chartType === 'bar_month') {
                         groupKey = dateStr.substring(0, 7) + '-01';
                     }
@@ -845,12 +1137,12 @@
                 const labels = sortedKeys.map(k => {
                     if (chartType === 'bar_week') {
                         const cleanDate = k.replace('_week', '');
-                        return formatDateReadable(cleanDate) + ' (нед)';
+                        return formatDateReadable(cleanDate).slice(0, 5);
                     } else if (chartType === 'bar_month') {
                         const parts = k.split('-');
                         return `${parts[1]}.${parts[0]}`;
                     }
-                    return formatDateReadable(k);
+                    return formatDateReadable(k).slice(0, 5);
                 });
 
                 chartInstance = new Chart(ctx, {
@@ -858,10 +1150,10 @@
                     data: {
                         labels: labels,
                         datasets: [{
-                            label: `Сумма в ${targetCurrency}`,
+                            label: `Сумма (${targetCurrency})`,
                             data: values,
-                            backgroundColor: '#3b82f6',
-                            borderRadius: 6
+                            backgroundColor: '#2563eb',
+                            borderRadius: 8
                         }]
                     },
                     options: {
@@ -869,23 +1161,51 @@
                         maintainAspectRatio: false,
                         plugins: { legend: { display: false } },
                         scales: {
-                            x: { ticks: { font: { size: 10 } } },
-                            y: { ticks: { font: { size: 10 } } }
+                            x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+                            y: { border: { display: false }, ticks: { font: { size: 10 } } }
                         }
                     }
                 });
             }
         };
 
+        // ==================== ИСТОРИЯ ЧЕКОВ (ФИЛЬТРАЦИЯ И СОРТИРОВКА) ====================
+        window.setHistoryPeriod = function(period) {
+            historyPeriod = period;
+            document.querySelectorAll('.hist-period-btn').forEach(btn => {
+                if (btn.dataset.hperiod === period) {
+                    btn.className = "hist-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white transition";
+                } else {
+                    btn.className = "hist-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition";
+                }
+            });
+            renderList();
+        };
+
+        window.setHistorySort = function(sortMode) {
+            historySort = sortMode;
+            const btnReceipt = document.getElementById('sort-by-receipt-date');
+            const btnCreated = document.getElementById('sort-by-created-at');
+
+            if (sortMode === 'receiptDate') {
+                btnReceipt.className = "px-2.5 py-1 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition";
+                btnCreated.className = "px-2.5 py-1 text-xs font-semibold rounded-lg text-slate-500 transition";
+            } else {
+                btnCreated.className = "px-2.5 py-1 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition";
+                btnReceipt.className = "px-2.5 py-1 text-xs font-semibold rounded-lg text-slate-500 transition";
+            }
+            renderList();
+        };
+
         function groupItemsIntoReceipts(items) {
             let receiptsMap = {};
             items.forEach(item => {
-                const groupKey = `${item.receiptDate}_${item.shop || 'Не указано'}_${item.createdAt || ''}`;
+                const groupKey = `${item.createdAt || item.receiptDate}_${item.shop || 'Не указано'}`;
                 if (!receiptsMap[groupKey]) {
                     receiptsMap[groupKey] = {
                         receiptDate: item.receiptDate,
                         shop: item.shop || 'Не указано',
-                        createdAt: item.createdAt,
+                        createdAt: item.createdAt || '',
                         items: []
                     };
                 }
@@ -896,52 +1216,72 @@
 
         function renderList() {
             const listEl = document.getElementById('receipts-list');
-            if (allItems.length === 0) {
-                listEl.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">Пока нет сохраненных записей</p>`;
+            const countEl = document.getElementById('history-receipts-count');
+
+            const filteredItems = filterItemsByPeriodGeneric(allItems, historyPeriod);
+            let receipts = groupItemsIntoReceipts(filteredItems);
+
+            // Сортировка чеков (по дефолту по дате самого чека)
+            receipts.sort((a, b) => {
+                if (historySort === 'receiptDate') {
+                    const cmp = (b.receiptDate || '').localeCompare(a.receiptDate || '');
+                    if (cmp !== 0) return cmp;
+                    return (b.createdAt || '').localeCompare(a.createdAt || '');
+                } else {
+                    return (b.createdAt || '').localeCompare(a.createdAt || '');
+                }
+            });
+
+            countEl.innerText = `${receipts.length} чек(ов)`;
+
+            if (receipts.length === 0) {
+                listEl.innerHTML = `<div class="bg-white rounded-3xl p-8 text-center text-xs text-slate-400 border border-slate-200/60">За выбранный период чеков не найдено</div>`;
                 return;
             }
-
-            const receipts = groupItemsIntoReceipts(allItems);
 
             listEl.innerHTML = receipts.map((receipt, index) => {
                 const receiptNum = receipts.length - index;
                 const totalRub = receipt.items.reduce((s, i) => s + (Number(i.priceRub) || 0), 0);
                 const currency = receipt.items[0] ? receipt.items[0].currency : 'RUB';
                 const totalOriginal = receipt.items.reduce((s, i) => s + (Number(i.originalPrice) || 0), 0);
+                const uploadedDateStr = receipt.createdAt ? formatDateReadable(receipt.createdAt.split('T')[0]) : '—';
 
                 return `
-                    <div class="bg-slate-50 rounded-2xl p-3 border border-slate-200/60 shadow-sm mb-3">
+                    <div class="bg-white rounded-3xl p-4 border border-slate-200/60 shadow-sm">
                         <div onclick="toggleReceipt('receipt-body-${index}')" class="flex justify-between items-center cursor-pointer select-none">
-                            <div class="flex items-center gap-2">
-                                <span class="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded-lg">Чек #${receiptNum}</span>
+                            <div class="flex items-center gap-2.5">
+                                <span class="bg-blue-600 text-white text-xs font-bold px-2.5 py-1 rounded-xl">#${receiptNum}</span>
                                 <div>
-                                    <input type="text" value="${receipt.shop}" onclick="event.stopPropagation()" onchange="updateReceiptShop(this, '${receipt.createdAt}', '${receipt.shop}')" class="font-semibold text-slate-800 text-sm bg-transparent border-b border-dashed border-slate-300 focus:border-blue-500 focus:outline-none w-36" title="Нажмите, чтобы изменить магазин">
-                                    <p class="text-[10px] text-slate-400">${formatDateReadable(receipt.receiptDate)}</p>
+                                    <input type="text" value="${receipt.shop}" onclick="event.stopPropagation()" onchange="updateReceiptShop(this, '${receipt.createdAt}')" class="font-bold text-slate-800 text-sm bg-transparent border-b border-dashed border-slate-300 focus:border-blue-500 focus:outline-none w-36" title="Нажмите, чтобы изменить магазин">
+                                    <div class="flex items-center gap-2 mt-0.5">
+                                        <input type="date" value="${receipt.receiptDate}" onclick="event.stopPropagation()" onchange="updateReceiptDate(this, '${receipt.createdAt}')" class="text-[11px] font-medium text-slate-500 bg-transparent border-none focus:outline-none p-0 cursor-pointer" title="Изменить дату чека">
+                                        <span class="text-[10px] text-slate-300" title="Дата загрузки">• загр. ${uploadedDateStr}</span>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="text-right flex items-center gap-2">
+                            <div class="text-right flex items-center gap-2.5">
                                 <div>
-                                    <p class="font-bold text-slate-900 text-sm">${formatMoney(totalOriginal)} ${currency}</p>
-                                    <p class="text-[10px] text-slate-400">${formatMoney(totalRub)} ₽</p>
+                                    <p class="font-extrabold text-slate-900 text-sm">${formatMoney(totalOriginal)} ${currency}</p>
+                                    <p class="text-[11px] text-slate-400">${formatMoney(totalRub)} ₽</p>
                                 </div>
                                 <i class="fa-solid fa-chevron-down text-slate-400 text-xs transition-transform duration-200" id="icon-${index}"></i>
                             </div>
                         </div>
 
-                        <div id="receipt-body-${index}" class="hidden mt-3 pt-3 border-t border-slate-200 space-y-2">
+                        <div id="receipt-body-${index}" class="hidden mt-3 pt-3 border-t border-slate-100 space-y-2">
                             ${receipt.items.map(item => `
-                                <div class="flex items-center justify-between bg-white p-2.5 rounded-xl text-xs border border-slate-100">
+                                <div class="flex items-center justify-between bg-slate-50 p-3 rounded-2xl text-xs border border-slate-200/50">
                                     <div class="flex-1 pr-2">
-                                        <p class="font-medium text-slate-800">${item.name} <span class="text-[10px] text-slate-400 font-normal">(${item.originalName || item.name})</span></p>
-                                        <div class="flex items-center gap-2 mt-1">
+                                        <p class="font-semibold text-slate-800">${item.name} <span class="text-[10px] text-slate-400 font-normal">(${item.originalName || item.name})</span></p>
+                                        <div class="flex items-center flex-wrap gap-2 mt-1.5">
                                             <span class="font-bold text-slate-900">${formatMoney(item.originalPrice)} ${item.currency}</span>
                                             <span class="text-[10px] text-slate-400">(${formatMoney(item.priceRub)} ₽)</span>
-                                            <select onchange="updateCategory('${item.id}', this.value)" class="text-[10px] bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-0.5 text-slate-600 focus:outline-none">
+                                            <select onchange="updateCategory('${item.id}', this.value)" class="text-[11px] font-medium bg-white border border-slate-200 rounded-lg px-2 py-0.5 text-slate-700 focus:outline-none">
                                                 ${userCategories.map(cat => `<option value="${cat}" ${cat === item.category ? 'selected' : ''}>${cat}</option>`).join('')}
                                             </select>
                                         </div>
                                     </div>
-                                    <button onclick="deleteItem('${item.id}')" class="text-slate-300 hover:text-red-500 p-1.5"><i class="fa-solid fa-trash-can"></i></button>
+                                    <button onclick="deleteItem('${item.id}')" class="text-slate-300 hover:text-red-500 p-2"><i class="fa-solid fa-trash-can"></i></button>
                                 </div>
                             `).join('')}
                         </div>
@@ -963,11 +1303,29 @@
             }
         };
 
-        window.updateReceiptShop = async function(inputEl, createdAt, oldShop) {
+        window.updateReceiptShop = async function(inputEl, createdAt) {
             const newShop = inputEl.value.trim() || "Не указано";
             const targetItems = allItems.filter(item => item.createdAt === createdAt);
             for (let item of targetItems) {
                 await updateDoc(doc(db, `users/${currentUser.uid}/items`, item.id), { shop: newShop });
+            }
+            loadData();
+        };
+
+        window.updateReceiptDate = async function(inputEl, createdAt) {
+            const newDate = inputEl.value;
+            if (!newDate) return;
+            const targetItems = allItems.filter(item => item.createdAt === createdAt);
+            const historicalRates = await getHistoricalRates(newDate);
+
+            for (let item of targetItems) {
+                const currency = item.currency || 'RUB';
+                const rateToRub = historicalRates[currency] ? (1 / historicalRates[currency]) : 1;
+                const newPriceRub = (Number(item.originalPrice) || 0) * rateToRub;
+                await updateDoc(doc(db, `users/${currentUser.uid}/items`, item.id), {
+                    receiptDate: newDate,
+                    priceRub: newPriceRub
+                });
             }
             loadData();
         };
