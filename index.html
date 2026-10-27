@@ -21,7 +21,6 @@
         .bottom-nav {
             padding-bottom: env(safe-area-inset-bottom);
         }
-        /* Скрытие скроллбара для горизонтальных фильтров */
         .no-scrollbar::-webkit-scrollbar {
             display: none;
         }
@@ -29,9 +28,19 @@
             -ms-overflow-style: none;
             scrollbar-width: none;
         }
+        @keyframes slideDown {
+            from { transform: translate(-50%, -100%); opacity: 0; }
+            to { transform: translate(-50%, 0); opacity: 1; }
+        }
+        .toast-animate {
+            animation: slideDown 0.25s ease-out forwards;
+        }
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800 font-sans antialiased min-h-screen">
+
+    <!-- Всплывающее уведомление о смене модели (Toast) -->
+    <div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-[100] w-11/12 max-w-sm pointer-events-none space-y-2"></div>
 
     <!-- Экран авторизации -->
     <div id="auth-screen" class="fixed inset-0 bg-slate-900 z-50 flex items-center justify-center p-4 hidden">
@@ -86,7 +95,14 @@
         <!-- Шапка -->
         <header class="flex justify-between items-center py-3 mb-2">
             <div>
-                <h1 class="text-lg font-extrabold text-slate-900 leading-tight">AI Кошелек</h1>
+                <div class="flex items-center gap-2">
+                    <h1 class="text-lg font-extrabold text-slate-900 leading-tight">AI Кошелек</h1>
+                    <!-- Индикатор и ручной переключатель активной модели ИИ -->
+                    <button onclick="cycleModelManually()" id="active-model-badge" class="text-[10px] font-bold bg-indigo-50 text-indigo-600 border border-indigo-200 px-2 py-0.5 rounded-lg flex items-center gap-1 active:scale-95 transition" title="Нажмите для ручной смены модели">
+                        <i class="fa-solid fa-microchip text-[9px]"></i>
+                        <span id="active-model-text">flash 3.8</span>
+                    </button>
+                </div>
                 <p class="text-[11px] text-slate-400" id="user-email-display"></p>
             </div>
             <div class="flex items-center gap-2">
@@ -371,6 +387,51 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
 
+        // ==================== СПИСОК МОДЕЛЕЙ И АВТОРОТАЦИЯ ====================
+        const GEMINI_MODELS = [
+            { id: 'gemini-3.8-flash', label: 'flash 3.8' },
+            { id: 'gemini-3.6-flash', label: 'flash 3.6' },
+            { id: 'gemini-3.5-flash-lite', label: 'flash 3.5 lite' }
+        ];
+        let currentModelIndex = 0;
+
+        function updateModelBadgeUI() {
+            const badgeText = document.getElementById('active-model-text');
+            if (badgeText) {
+                badgeText.innerText = GEMINI_MODELS[currentModelIndex].label;
+            }
+        }
+
+        // Показ всплывающего уведомления (Toast) пользователю
+        function showToast(message, type = 'warning') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const bgClass = type === 'warning' ? 'bg-amber-500 text-white' : 'bg-indigo-600 text-white';
+            const iconClass = type === 'warning' ? 'fa-bolt' : 'fa-microchip';
+
+            toast.className = `toast-animate ${bgClass} px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 text-xs font-bold pointer-events-auto border border-white/20`;
+            toast.innerHTML = `
+                <i class="fa-solid ${iconClass} text-base shrink-0"></i>
+                <div class="flex-1 leading-snug">${message}</div>
+            `;
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 4500);
+        }
+
+        // Ручное переключение модели по клику на бейдж в шапке
+        window.cycleModelManually = function() {
+            const prevModel = GEMINI_MODELS[currentModelIndex];
+            currentModelIndex = (currentModelIndex + 1) % GEMINI_MODELS.length;
+            const nextModel = GEMINI_MODELS[currentModelIndex];
+            updateModelBadgeUI();
+            showToast(`Модель переключена вручную: ${prevModel.label} ➔ ${nextModel.label}`, 'info');
+        };
+
         let currentUser = null;
         let currentUserApiKey = "";
         let chartInstance = null;
@@ -400,7 +461,6 @@
 
         const CHART_COLORS = ['#2563eb', '#db2777', '#059669', '#d97706', '#7c3aed', '#0891b2', '#e11d48', '#4f46e5', '#65a30d', '#475569'];
 
-        // 1. Получение реальной локальной даты устройства в формате YYYY-MM-DD
         function getTodayDateStr() {
             const now = new Date();
             const year = now.getFullYear();
@@ -461,6 +521,7 @@
             if (user) {
                 document.getElementById('auth-screen').classList.add('hidden');
                 document.getElementById('user-email-display').innerText = user.email;
+                updateModelBadgeUI();
 
                 try {
                     const userDocRef = doc(db, `users/${user.uid}`);
@@ -505,7 +566,6 @@
             document.getElementById('apikey-screen').classList.remove('hidden');
         };
 
-        // Оптимизированное получение и кэширование курсов валют
         async function getHistoricalRates(dateStr) {
             if (ratesCache['latest']) return ratesCache['latest'];
 
@@ -523,33 +583,118 @@
             return { RUB: 1 };
         }
 
-        // Запрос к Gemini с таймаутом (AbortController) и автоповтором
-        async function callGeminiWithRetry(payload, maxRetries = 2, delaySec = 3) {
-            for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        // Надежное извлечение JSON-объекта из любого текстового ответа ИИ
+        function extractJsonObject(rawText) {
+            if (!rawText) throw new Error("Пустой ответ от ИИ");
+            const firstBrace = rawText.indexOf('{');
+            const lastBrace = rawText.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                const jsonCandidate = rawText.substring(firstBrace, lastBrace + 1);
+                return JSON.parse(jsonCandidate);
+            }
+            const cleaned = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+            return JSON.parse(cleaned);
+        }
+
+        // Запрос к Gemini с автоматическим переключением моделей при исчерпании лимитов или таймауте
+        async function callGeminiWithModelFallback(basePayload) {
+            const totalModels = GEMINI_MODELS.length;
+            let lastError = null;
+
+            for (let attempt = 0; attempt < totalModels; attempt++) {
+                const activeModel = GEMINI_MODELS[currentModelIndex];
+                const statusTitleEl = document.getElementById('ai-job-status-title');
+                if (statusTitleEl) {
+                    statusTitleEl.innerText = `Запрос к ИИ (${activeModel.label})...`;
+                }
+
+                // Делаем быстрый запрос с отключенным thinkingBudget для мгновенного ответа
+                const payloadWithFastThinking = {
+                    ...basePayload,
+                    generationConfig: {
+                        temperature: 0.1,
+                        thinkingConfig: { thinkingBudget: 0 }
+                    }
+                };
+
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 30000); // Таймаут 30 секунд
+                // 20 секунд достаточно даже для чека; если висит дольше — переключаем модель
+                const timeoutId = setTimeout(() => controller.abort(), 20000);
 
                 try {
-                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${currentUserApiKey}`, {
+                    let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${activeModel.id}:generateContent?key=${currentUserApiKey}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload),
+                        body: JSON.stringify(payloadWithFastThinking),
                         signal: controller.signal
                     });
+
+                    let data = await response.json();
+
+                    // Если конкретная модель не поддерживает thinkingConfig (400 Invalid Argument), мгновенно повторяем без него
+                    if (data.error && data.error.code === 400 && JSON.stringify(data.error).includes('thinking')) {
+                        response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${activeModel.id}:generateContent?key=${currentUserApiKey}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(basePayload),
+                            signal: controller.signal
+                        });
+                        data = await response.json();
+                    }
+
                     clearTimeout(timeoutId);
 
-                    const data = await response.json();
-                    if (data.error) throw new Error(data.error.message);
+                    if (data.error) {
+                        const errCode = data.error.code || response.status;
+                        const errStatus = data.error.status || '';
+                        const errMsg = data.error.message || 'Ошибка API';
+
+                        // Проверяем на исчерпание лимитов (429 / RESOURCE_EXHAUSTED / quota) или перегрузку/недоступность (503 / 404)
+                        const isQuotaOrLimit =
+                            errCode === 429 ||
+                            errCode === 503 ||
+                            errCode === 404 ||
+                            errStatus === 'RESOURCE_EXHAUSTED' ||
+                            /quota|rate limit|exhausted|limit|overloaded/i.test(errMsg);
+
+                        if (isQuotaOrLimit && attempt < totalModels - 1) {
+                            const oldModel = activeModel.label;
+                            currentModelIndex = (currentModelIndex + 1) % totalModels;
+                            const newModel = GEMINI_MODELS[currentModelIndex].label;
+                            updateModelBadgeUI();
+                            showToast(`Лимит модели ${oldModel} исчерпан. Автоматическое переключение на ${newModel}`, 'warning');
+                            continue; // Сразу пробуем следующую модель
+                        }
+
+                        throw new Error(`[${activeModel.label}] ${errMsg}`);
+                    }
+
                     return data;
                 } catch (err) {
                     clearTimeout(timeoutId);
+                    lastError = err;
+
+                    // Если модель зависла по таймауту — тоже переключаемся на следующую модель в списке
                     if (err.name === 'AbortError') {
-                        throw new Error('Превышено время ожидания ответа от ИИ (30 сек). Проверьте соединение и не блокируйте экран во время отправки.');
+                        if (attempt < totalModels - 1) {
+                            const oldModel = activeModel.label;
+                            currentModelIndex = (currentModelIndex + 1) % totalModels;
+                            const newModel = GEMINI_MODELS[currentModelIndex].label;
+                            updateModelBadgeUI();
+                            showToast(`Модель ${oldModel} долго не отвечает. Переключение на ${newModel}`, 'warning');
+                            continue;
+                        }
+                        throw new Error('Все модели превысили время ожидания (20 сек). Проверьте соединение с интернетом.');
                     }
-                    if (attempt === maxRetries) throw err;
-                    await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
+
+                    // Если ошибка не связана с квотой/таймаутом, или мы проверили все модели — пробрасываем ошибку
+                    if (attempt === totalModels - 1) {
+                        throw err;
+                    }
                 }
             }
+
+            throw lastError || new Error('Не удалось получить ответ от моделей Gemini');
         }
 
         // ==================== ОТОБРАЖЕНИЕ И ОБРАБОТКА ЗАПРОСА В ИИ ====================
@@ -569,12 +714,13 @@
             document.getElementById('ai-job-close-btn').classList.add('hidden');
             document.getElementById('ai-job-error-box').classList.add('hidden');
 
+            const activeLabel = GEMINI_MODELS[currentModelIndex].label;
             if (job.type === 'receipt') {
-                document.getElementById('ai-job-status-title').innerText = 'ИИ анализирует фото чека...';
+                document.getElementById('ai-job-status-title').innerText = `ИИ (${activeLabel}) анализирует чек...`;
             } else if (job.type === 'voice') {
-                document.getElementById('ai-job-status-title').innerText = 'ИИ обрабатывает голосовую запись...';
+                document.getElementById('ai-job-status-title').innerText = `ИИ (${activeLabel}) слушает запись...`;
             } else {
-                document.getElementById('ai-job-status-title').innerText = 'ИИ разбирает текстовую запись...';
+                document.getElementById('ai-job-status-title').innerText = `ИИ (${activeLabel}) разбирает текст...`;
             }
 
             imgBox.classList.add('hidden');
@@ -619,10 +765,9 @@
             showAiJobPanel(job);
 
             try {
-                const data = await callGeminiWithRetry(job.payload);
-                let textResult = data.candidates[0].content.parts[0].text;
-                textResult = textResult.replace(/```json/g, '').replace(/```/g, '').trim();
-                const parsedData = JSON.parse(textResult);
+                const data = await callGeminiWithModelFallback(job.payload);
+                const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+                const parsedData = extractJsonObject(rawText);
 
                 const todayStr = getTodayDateStr();
                 const defaultShop = job.type === 'voice' ? "Голосовой ввод" : (job.type === 'text' ? "Текстовый ввод" : "Не указано");
@@ -698,22 +843,19 @@
 3. Если в тексте перечислено несколько покупок, создай отдельный элемент в массиве items для каждой.
 4. Распредели каждую покупку строго по одной из доступных категорий: ${JSON.stringify(userCategories)}.
 
-Верни ТОЛЬКО валидный JSON-объект следующей структуры:
+Верни ТОЛЬКО валидный JSON-объект без пояснений и без markdown-оберток следующей структуры:
 {
   "shopName": "Название магазина/места из текста или 'Текстовый ввод'",
   "receiptDate": "YYYY-MM-DD",
   "items": [
-    {"originalName": "Описание из текста", "name": "Краткое название на русском", "price": число_суммы, "currency": "код_валюты", "category": "подходящая категория из списка"}
+    {"originalName": "Описание из текста", "name": "Краткое название на русском", "price": 100, "currency": "${defaultCurrency}", "category": "${userCategories[0]}"}
   ]
 }`;
 
             const payload = {
                 contents: [{
                     parts: [{ text: prompt }]
-                }],
-                generationConfig: {
-                    responseMimeType: "application/json"
-                }
+                }]
             };
 
             inputEl.value = '';
@@ -807,10 +949,7 @@
                                 { text: prompt },
                                 { inlineData: { mimeType: audioData.mimeType, data: audioData.base64 } }
                             ]
-                        }],
-                        generationConfig: {
-                            responseMimeType: "application/json"
-                        }
+                        }]
                     };
 
                     await executeAiJob({
@@ -935,10 +1074,7 @@
                         { text: prompt },
                         { inlineData: { mimeType: mimeType, data: base64 } }
                     ]
-                }],
-                generationConfig: {
-                    responseMimeType: "application/json"
-                }
+                }]
             };
 
             pendingFile = null;
