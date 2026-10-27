@@ -2,8 +2,8 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Мультивалютный учет расходов</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>AI Кошелек — Учет расходов</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Chart.js -->
@@ -15,8 +15,9 @@
     <style>
         body {
             padding-top: env(safe-area-inset-top);
-            padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+            padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
             -webkit-tap-highlight-color: transparent;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
         .bottom-nav {
             padding-bottom: env(safe-area-inset-bottom);
@@ -28,193 +29,259 @@
             -ms-overflow-style: none;
             scrollbar-width: none;
         }
+        /* Предотвращение авто-зума iOS Safari при фокусе на инпутах */
+        input, select, textarea {
+            font-size: 16px !important;
+        }
         @keyframes slideDown {
-            from { transform: translate(-50%, -100%); opacity: 0; }
+            from { transform: translate(-50%, -120%); opacity: 0; }
             to { transform: translate(-50%, 0); opacity: 1; }
         }
         .toast-animate {
-            animation: slideDown 0.25s ease-out forwards;
+            animation: slideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
     </style>
 </head>
-<body class="bg-slate-100 text-slate-800 font-sans antialiased min-h-screen">
+<body class="bg-slate-100 text-slate-900 antialiased min-h-screen selection:bg-indigo-100 selection:text-indigo-900">
 
-    <!-- Всплывающее уведомление о смене модели (Toast) -->
+    <!-- Контейнер всплывающих уведомлений (Toast) -->
     <div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-[100] w-11/12 max-w-sm pointer-events-none space-y-2"></div>
 
-    <!-- Экран авторизации -->
+    <!-- ==================== ЭКРАН АВТОРИЗАЦИИ ==================== -->
     <div id="auth-screen" class="fixed inset-0 bg-slate-900 z-50 flex items-center justify-center p-4 hidden">
         <div class="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
-            <h2 class="text-2xl font-bold text-slate-900 mb-2 text-center">Вход в кошелек</h2>
+            <div class="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-3 text-xl">
+                <i class="fa-solid fa-wallet"></i>
+            </div>
+            <h2 class="text-2xl font-extrabold text-slate-900 mb-1 text-center">AI Кошелек</h2>
             <p class="text-xs text-slate-500 mb-6 text-center">Ваши чеки и финансы под защитой Firebase</p>
-            <div id="auth-error" class="bg-red-50 text-red-600 text-xs p-3 rounded-xl mb-4 hidden"></div>
-            <input type="email" id="auth-email" placeholder="Email" class="w-full border border-slate-200 rounded-xl px-4 py-3 mb-3 text-sm focus:outline-none focus:border-blue-500">
-            <input type="password" id="auth-password" placeholder="Пароль" class="w-full border border-slate-200 rounded-xl px-4 py-3 mb-4 text-sm focus:outline-none focus:border-blue-500">
-            <button onclick="handleAuth()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition text-sm">Войти / Регистрация</button>
+            <div id="auth-error" class="bg-red-50 border border-red-100 text-red-600 text-xs p-3 rounded-2xl mb-4 hidden"></div>
+            <div class="space-y-3 mb-5">
+                <input type="email" id="auth-email" placeholder="Email" class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 h-12 focus:outline-none focus:bg-white focus:border-indigo-500 transition">
+                <input type="password" id="auth-password" placeholder="Пароль" class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 h-12 focus:outline-none focus:bg-white focus:border-indigo-500 transition">
+            </div>
+            <button onclick="handleAuth()" class="w-full h-12 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-bold rounded-2xl transition shadow-md shadow-indigo-600/20 text-sm">
+                Войти / Регистрация
+            </button>
         </div>
     </div>
 
-    <!-- Экран ввода API-ключа -->
-    <div id="apikey-screen" class="fixed inset-0 bg-slate-900/90 z-50 flex items-center justify-center p-4 hidden">
+    <!-- ==================== МОДАЛКА API-КЛЮЧА ==================== -->
+    <div id="apikey-screen" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
         <div class="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl">
-            <h2 class="text-xl font-bold text-slate-900 mb-2 text-center">Привязка Gemini API</h2>
-            <p class="text-xs text-slate-500 mb-4 text-center">Введите ваш личный ключ из Google AI Studio.</p>
-            <input type="text" id="user-gemini-key" placeholder="AIzaSy..." class="w-full border border-slate-200 rounded-xl px-4 py-3 mb-4 text-sm focus:outline-none focus:border-blue-500 font-mono">
-            <div class="flex gap-2">
-                <button onclick="document.getElementById('apikey-screen').classList.add('hidden')" class="flex-1 bg-slate-100 text-slate-600 font-medium py-3 rounded-xl transition text-sm">Закрыть</button>
-                <button onclick="saveUserApiKey()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition text-sm">Сохранить</button>
+            <div class="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-3 text-lg">
+                <i class="fa-solid fa-key"></i>
+            </div>
+            <h2 class="text-lg font-extrabold text-slate-900 mb-1 text-center">Ключ Gemini API</h2>
+            <p class="text-xs text-slate-500 mb-4 text-center">Укажите ваш персональный ключ из Google AI Studio</p>
+            <input type="text" id="user-gemini-key" placeholder="AIzaSy..." class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 h-12 mb-4 focus:outline-none focus:bg-white focus:border-indigo-500 font-mono">
+            <div class="grid grid-cols-2 gap-2.5">
+                <button onclick="document.getElementById('apikey-screen').classList.add('hidden')" class="h-11 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl transition text-xs">Закрыть</button>
+                <button onclick="saveUserApiKey()" class="h-11 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl transition text-xs shadow-md shadow-indigo-600/20">Сохранить</button>
             </div>
         </div>
     </div>
 
-    <!-- Модальное окно подтверждения чека перед отправкой -->
-    <div id="receipt-modal" class="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 hidden">
+    <!-- ==================== МОДАЛКА ПРЕВЬЮ ЧЕКА ==================== -->
+    <div id="receipt-modal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
         <div class="bg-white rounded-3xl p-5 w-full max-w-sm shadow-2xl max-h-[90vh] overflow-y-auto">
-            <h3 class="font-bold text-slate-800 text-base mb-3">Подтверждение чека</h3>
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="font-extrabold text-slate-900 text-base">Проверка фото чека</h3>
+                <button onclick="cancelReceiptUpload()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
             
-            <!-- Превью фото -->
-            <div class="mb-3 bg-slate-100 rounded-2xl overflow-hidden h-52 flex items-center justify-center border border-slate-200">
+            <div class="mb-3.5 bg-slate-100 rounded-2xl overflow-hidden h-52 flex items-center justify-center border border-slate-200/80">
                 <img id="modal-img-preview" src="" alt="Чек" class="max-h-full object-contain">
             </div>
 
-            <!-- Дополнительное поле для текстовой заметки -->
             <div class="mb-4">
-                <label class="block text-xs font-semibold text-slate-600 mb-1">Заметка / Инструкция для ИИ (необязательно):</label>
-                <textarea id="modal-prompt-note" rows="2" placeholder="Например: 'не учитывай две первые позиции из чека'" class="w-full border border-slate-200 rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500"></textarea>
+                <label class="block text-xs font-bold text-slate-600 mb-1.5">Инструкция для ИИ (необязательно):</label>
+                <textarea id="modal-prompt-note" rows="2" placeholder="Например: «не учитывай первую позицию» или «подели счет пополам»" class="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 focus:outline-none focus:bg-white focus:border-indigo-500"></textarea>
             </div>
 
-            <div class="flex gap-2">
-                <button onclick="cancelReceiptUpload()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-3 rounded-xl transition text-xs">Отмена</button>
-                <button onclick="confirmReceiptUpload()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition text-xs">Отправить в ИИ</button>
+            <div class="grid grid-cols-2 gap-2.5">
+                <button onclick="cancelReceiptUpload()" class="h-11 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl transition text-xs">Отмена</button>
+                <button onclick="confirmReceiptUpload()" class="h-11 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl transition text-xs shadow-md shadow-indigo-600/20">Распознать</button>
             </div>
         </div>
     </div>
 
-    <!-- Основной интерфейс -->
+    <!-- ==================== МОДАЛКА РЕДАКТИРОВАНИЯ ЧЕКА ==================== -->
+    <div id="edit-receipt-modal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl p-5 w-full max-w-sm shadow-2xl">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-extrabold text-slate-900 text-base">Редактировать чек</h3>
+                <button onclick="closeEditReceiptModal()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+            <input type="hidden" id="edit-receipt-created-at">
+            <div class="space-y-3.5 mb-5">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Магазин или место</label>
+                    <input type="text" id="edit-receipt-shop" class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3.5 h-11 focus:outline-none focus:bg-white focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1">Дата чека</label>
+                    <input type="date" id="edit-receipt-date" class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3.5 h-11 focus:outline-none focus:bg-white focus:border-indigo-500">
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2.5">
+                <button onclick="closeEditReceiptModal()" class="h-11 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl transition text-xs">Отмена</button>
+                <button onclick="saveReceiptMetadata()" class="h-11 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl transition text-xs shadow-md shadow-indigo-600/20">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== ОСНОВНОЙ ИНТЕРФЕЙС ==================== -->
     <div id="app-screen" class="max-w-md mx-auto px-4 pt-2 hidden">
         <!-- Шапка -->
-        <header class="flex justify-between items-center py-3 mb-2">
+        <header class="flex justify-between items-center py-2.5 mb-2">
             <div>
                 <div class="flex items-center gap-2">
-                    <h1 class="text-lg font-extrabold text-slate-900 leading-tight">AI Кошелек</h1>
-                    <!-- Индикатор и ручной переключатель активной модели ИИ -->
-                    <button onclick="cycleModelManually()" id="active-model-badge" class="text-[10px] font-bold bg-indigo-50 text-indigo-600 border border-indigo-200 px-2 py-0.5 rounded-lg flex items-center gap-1 active:scale-95 transition" title="Нажмите для ручной смены модели">
-                        <i class="fa-solid fa-microchip text-[9px]"></i>
+                    <h1 class="text-lg font-black text-slate-900 tracking-tight">AI Кошелек</h1>
+                    <button onclick="cycleModelManually()" id="active-model-badge" class="text-[11px] font-bold bg-indigo-50 text-indigo-600 border border-indigo-200/80 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 active:scale-95 transition" title="Нажмите для смены модели ИИ">
+                        <span class="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
                         <span id="active-model-text">flash 3.8</span>
                     </button>
                 </div>
-                <p class="text-[11px] text-slate-400" id="user-email-display"></p>
+                <p class="text-[11px] text-slate-400 font-medium" id="user-email-display"></p>
             </div>
             <div class="flex items-center gap-2">
-                <button onclick="openSettings()" class="w-9 h-9 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-500 hover:text-blue-600 text-sm transition" title="Настройки API"><i class="fa-solid fa-key"></i></button>
-                <button onclick="logout()" class="w-9 h-9 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-500 hover:text-red-500 text-sm transition" title="Выйти"><i class="fa-solid fa-right-from-bracket"></i></button>
+                <button onclick="openSettings()" class="w-9 h-9 rounded-2xl bg-white border border-slate-200/70 shadow-sm flex items-center justify-center text-slate-600 hover:text-indigo-600 active:scale-95 transition" title="Ключ API">
+                    <i class="fa-solid fa-key text-xs"></i>
+                </button>
+                <button onclick="logout()" class="w-9 h-9 rounded-2xl bg-white border border-slate-200/70 shadow-sm flex items-center justify-center text-slate-600 hover:text-red-500 active:scale-95 transition" title="Выйти">
+                    <i class="fa-solid fa-right-from-bracket text-xs"></i>
+                </button>
             </div>
         </header>
 
         <!-- ==================== РАЗДЕЛ 1: ГЛАВНОЕ ==================== -->
-        <div id="section-home" class="space-y-4">
-            <!-- Блок добавления чека -->
-            <div class="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-3xl p-5 text-white shadow-lg">
-                <div class="flex justify-between items-start mb-2">
-                    <div>
-                        <h2 class="font-bold text-lg">Сканировать чек</h2>
-                        <p class="text-xs text-blue-100">ИИ сам переведет позиции и распределит по категориям</p>
-                    </div>
-                    <i class="fa-solid fa-receipt text-2xl text-blue-200/60"></i>
+        <div id="section-home" class="space-y-3.5">
+            
+            <!-- Единый селектор валюты по умолчанию для всех способов ввода -->
+            <div class="bg-white rounded-2xl px-4 py-2.5 shadow-sm border border-slate-200/70 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-coins text-indigo-600 text-xs"></i>
+                    <span class="text-xs font-bold text-slate-700">Валюта ввода:</span>
                 </div>
-                
-                <div class="my-3">
-                    <label class="block text-[11px] uppercase tracking-wider text-blue-100 font-semibold mb-1">Валюта чека:</label>
-                    <select id="receipt-currency" class="w-full bg-white/95 text-slate-900 text-sm font-semibold rounded-xl px-3 py-2.5 border-none focus:outline-none shadow-sm">
-                        <option value="RUB">🇷🇺 RUB (Российский рубль)</option>
-                        <option value="THB" selected>🇹🇭 THB (Тайский бат)</option>
-                        <option value="VND">🇻🇳 VND (Вьетнамский донг)</option>
-                        <option value="IDR">🇮🇩 IDR (Индонезийская рупия)</option>
-                        <option value="USD">🇺🇸 USD (Доллар США)</option>
-                        <option value="EUR">🇪🇺 EUR (Евро)</option>
-                        <option value="KZT">🇰🇿 KZT (Казахстанский тенге)</option>
-                    </select>
+                <select id="receipt-currency" class="bg-slate-100 text-slate-900 text-xs font-bold rounded-xl px-3 py-1.5 border-none focus:outline-none cursor-pointer">
+                    <option value="THB" selected>🇹🇭 THB (Бат)</option>
+                    <option value="RUB">🇷🇺 RUB (Рубль)</option>
+                    <option value="USD">🇺🇸 USD (Доллар)</option>
+                    <option value="EUR">🇪🇺 EUR (Евро)</option>
+                    <option value="VND">🇻🇳 VND (Донг)</option>
+                    <option value="IDR">🇮🇩 IDR (Рупия)</option>
+                    <option value="KZT">🇰🇿 KZT (Тенге)</option>
+                </select>
+            </div>
+
+            <!-- Карточка 1: Сканирование чека -->
+            <div class="bg-gradient-to-br from-indigo-600 via-indigo-600 to-blue-700 rounded-3xl p-5 text-white shadow-lg shadow-indigo-600/20">
+                <div class="flex justify-between items-start mb-4">
+                    <div>
+                        <span class="inline-block text-[10px] font-extrabold uppercase tracking-wider bg-white/20 px-2.5 py-0.5 rounded-full mb-1.5">Камера или фото</span>
+                        <h2 class="font-extrabold text-lg leading-snug">Сканировать чек</h2>
+                        <p class="text-xs text-indigo-100 mt-0.5">ИИ переведет товары и разнесет по категориям</p>
+                    </div>
+                    <div class="w-10 h-10 rounded-2xl bg-white/15 flex items-center justify-center shrink-0">
+                        <i class="fa-solid fa-receipt text-lg text-white"></i>
+                    </div>
                 </div>
 
-                <label class="block w-full bg-white text-blue-700 hover:bg-blue-50 active:scale-[0.99] font-bold text-center py-3.5 rounded-2xl cursor-pointer transition shadow-md text-sm">
-                    <i class="fa-solid fa-camera mr-2"></i> Сфотографировать / Галерея
+                <label class="flex items-center justify-center w-full h-12 bg-white text-indigo-700 hover:bg-indigo-50 active:scale-[0.99] font-extrabold rounded-2xl cursor-pointer transition shadow-sm text-sm gap-2">
+                    <i class="fa-solid fa-camera"></i>
+                    <span>Сфотографировать / Галерея</span>
                     <input type="file" accept="image/*" id="receipt-input" class="hidden" onchange="handleFileSelected(event)">
                 </label>
             </div>
 
-            <!-- Блок голосового ввода без чека -->
-            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60">
+            <!-- Карточка 2: Быстрый ввод (Голос и Текст с единой дизайн-системой кнопок) -->
+            <div class="bg-white rounded-3xl p-4 shadow-sm border border-slate-200/70 space-y-4">
+                
+                <!-- Голосовой ввод -->
                 <div class="flex items-center justify-between gap-3">
-                    <div>
-                        <h3 class="font-bold text-slate-800 text-sm">Голосовой ввод трат</h3>
-                        <p class="text-xs text-slate-400 mt-0.5">Скажите, например: «Сегодня заправился на 320 бат»</p>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-1.5">
+                            <i class="fa-solid fa-microphone-lines text-indigo-600 text-xs"></i>
+                            <h3 class="font-extrabold text-slate-900 text-sm">Голосовой ввод</h3>
+                        </div>
+                        <p class="text-xs text-slate-400 truncate mt-0.5">«Заправил байк на 140 бат»</p>
                     </div>
-                    <button onclick="toggleVoiceExpenseRecording()" id="voice-expense-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-2xl text-xs font-bold transition flex items-center gap-2 shrink-0 shadow-sm">
-                        <i class="fa-solid fa-microphone"></i> <span id="voice-expense-text">Записать</span>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Блок текстового ввода трат -->
-            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60">
-                <div class="mb-2.5">
-                    <h3 class="font-bold text-slate-800 text-sm">Текстовый ввод трат</h3>
-                    <p class="text-xs text-slate-400 mt-0.5">Напишите в свободной форме одну или несколько покупок</p>
-                </div>
-                <div class="flex gap-2">
-                    <input type="text" id="text-expense-input" onkeydown="if(event.key === 'Enter') submitTextExpense()" placeholder="Кофе 80 бат и круассан 65 бат в 7-Eleven..." class="flex-1 border border-slate-200 rounded-2xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-indigo-500">
-                    <button onclick="submitTextExpense()" class="bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center gap-1.5 shrink-0 shadow-sm">
-                        <i class="fa-solid fa-paper-plane"></i> <span>Внести</span>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Модуль текущего статуса отправки и данных запроса в ИИ -->
-            <div id="ai-job-panel" class="bg-white rounded-3xl p-5 shadow-md border border-blue-200 hidden">
-                <div class="flex justify-between items-center mb-3">
-                    <div class="flex items-center gap-2">
-                        <div id="ai-job-spinner" class="animate-spin rounded-full h-5 w-5 border-2 border-blue-600 border-t-transparent"></div>
-                        <i id="ai-job-error-icon" class="fa-solid fa-triangle-exclamation text-red-500 text-lg hidden"></i>
-                        <h3 id="ai-job-status-title" class="font-bold text-sm text-slate-800">Отправка запроса в ИИ...</h3>
-                    </div>
-                    <button onclick="closeAiJobPanel()" id="ai-job-close-btn" class="text-xs text-slate-400 hover:text-slate-600 hidden">
-                        <i class="fa-solid fa-xmark text-base"></i>
+                    <button onclick="toggleVoiceExpenseRecording()" id="voice-expense-btn" class="w-[118px] h-11 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white rounded-2xl text-xs font-bold transition flex items-center justify-center gap-1.5 shrink-0 shadow-sm shadow-indigo-600/15">
+                        <i class="fa-solid fa-microphone" id="voice-expense-icon"></i>
+                        <span id="voice-expense-text">Записать</span>
                     </button>
                 </div>
 
-                <!-- Превью отправляемых медиаданных (Фото, Аудио или Текст) -->
-                <div id="ai-job-image-box" class="mb-3 bg-slate-50 rounded-2xl overflow-hidden h-40 flex items-center justify-center border border-slate-200 hidden">
-                    <img id="ai-job-img" src="" alt="Отправляемый чек" class="max-h-full object-contain">
-                </div>
+                <div class="border-t border-slate-100"></div>
 
-                <div id="ai-job-audio-box" class="mb-3 bg-slate-50 p-3 rounded-2xl border border-slate-200 hidden">
-                    <p class="text-[11px] font-semibold text-slate-500 mb-1.5"><i class="fa-solid fa-volume-high mr-1"></i> Ваша голосовая запись:</p>
-                    <audio id="ai-job-audio" controls class="w-full h-9"></audio>
-                </div>
-
-                <div id="ai-job-text-box" class="mb-3 bg-slate-50 p-3 rounded-2xl border border-slate-200 hidden">
-                    <p class="text-[11px] font-semibold text-slate-500 mb-1"><i class="fa-solid fa-align-left mr-1"></i> Ваш текст:</p>
-                    <p id="ai-job-user-text" class="text-xs text-slate-800 font-medium"></p>
-                </div>
-
-                <!-- Отображение промпта -->
-                <div class="mb-3">
-                    <div class="flex justify-between items-center mb-1">
-                        <span class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Промпт запроса к ИИ:</span>
+                <!-- Текстовый ввод -->
+                <div>
+                    <div class="flex items-center gap-1.5 mb-2">
+                        <i class="fa-solid fa-keyboard text-indigo-600 text-xs"></i>
+                        <h3 class="font-extrabold text-slate-900 text-sm">Текстовый ввод</h3>
                     </div>
-                    <pre id="ai-job-prompt" class="text-[11px] text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-200 whitespace-pre-wrap max-h-36 overflow-y-auto font-mono leading-relaxed"></pre>
-                </div>
-
-                <!-- Блок ошибки и кнопка "Попробовать еще раз" -->
-                <div id="ai-job-error-box" class="bg-red-50 border border-red-200 rounded-2xl p-3.5 hidden">
-                    <p class="text-xs font-bold text-red-700 mb-1">Ошибка ответа ИИ:</p>
-                    <p id="ai-job-error-msg" class="text-xs text-red-600 mb-3 break-words"></p>
-                    <div class="flex gap-2">
-                        <button onclick="retryAiJob()" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm">
-                            <i class="fa-solid fa-rotate-right"></i> Попробовать еще раз
+                    <div class="flex items-center gap-2.5">
+                        <input type="text" id="text-expense-input" onkeydown="if(event.key === 'Enter') submitTextExpense()" placeholder="Кофе 80 и круассан 65 в 7-Eleven..." class="flex-1 min-w-0 h-11 bg-slate-50 border border-slate-200 rounded-2xl px-3.5 focus:outline-none focus:bg-white focus:border-indigo-500 transition">
+                        <button onclick="submitTextExpense()" class="w-[118px] h-11 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white rounded-2xl text-xs font-bold transition flex items-center justify-center gap-1.5 shrink-0 shadow-sm shadow-indigo-600/15">
+                            <i class="fa-solid fa-paper-plane"></i>
+                            <span>Внести</span>
                         </button>
-                        <button onclick="closeAiJobPanel()" class="bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 font-semibold py-2.5 px-3 rounded-xl text-xs transition">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Панель выполнения ИИ-запроса -->
+            <div id="ai-job-panel" class="bg-white rounded-3xl p-4 shadow-md border border-indigo-200 hidden">
+                <div class="flex justify-between items-center mb-3">
+                    <div class="flex items-center gap-2.5">
+                        <div id="ai-job-spinner" class="animate-spin rounded-full h-5 w-5 border-2 border-indigo-600 border-t-transparent"></div>
+                        <i id="ai-job-error-icon" class="fa-solid fa-circle-exclamation text-red-500 text-lg hidden"></i>
+                        <h3 id="ai-job-status-title" class="font-extrabold text-sm text-slate-900">Обработка запроса...</h3>
+                    </div>
+                    <button onclick="closeAiJobPanel()" id="ai-job-close-btn" class="w-7 h-7 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center hidden">
+                        <i class="fa-solid fa-xmark text-xs"></i>
+                    </button>
+                </div>
+
+                <!-- Превью отправляемых данных -->
+                <div id="ai-job-image-box" class="mb-3 bg-slate-50 rounded-2xl overflow-hidden h-36 flex items-center justify-center border border-slate-200/80 hidden">
+                    <img id="ai-job-img" src="" alt="Чек" class="max-h-full object-contain">
+                </div>
+
+                <div id="ai-job-audio-box" class="mb-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/80 hidden">
+                    <p class="text-[11px] font-bold text-slate-500 mb-1.5"><i class="fa-solid fa-waveform-lines mr-1"></i> Голосовая запись:</p>
+                    <audio id="ai-job-audio" controls class="w-full h-8"></audio>
+                </div>
+
+                <div id="ai-job-text-box" class="mb-3 bg-slate-50 p-3 rounded-2xl border border-slate-200/80 hidden">
+                    <p class="text-[11px] font-bold text-slate-500 mb-0.5">Ваш текст:</p>
+                    <p id="ai-job-user-text" class="text-xs text-slate-800 font-semibold"></p>
+                </div>
+
+                <!-- Спойлер с техническим промптом (скрыт по умолчанию, чтобы не засорять экран) -->
+                <details class="mb-2 group">
+                    <summary class="text-[11px] font-bold text-slate-400 cursor-pointer select-none flex items-center gap-1 py-1">
+                        <i class="fa-solid fa-code text-[10px]"></i>
+                        <span>Показать технический промпт ИИ</span>
+                    </summary>
+                    <pre id="ai-job-prompt" class="mt-1.5 text-[10px] text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-200 whitespace-pre-wrap max-h-32 overflow-y-auto font-mono leading-relaxed"></pre>
+                </details>
+
+                <!-- Блок ошибки -->
+                <div id="ai-job-error-box" class="bg-red-50 border border-red-200 rounded-2xl p-3.5 mt-2 hidden">
+                    <p class="text-xs font-extrabold text-red-700 mb-1">Не удалось разобрать данные:</p>
+                    <p id="ai-job-error-msg" class="text-xs text-red-600 mb-3 break-words"></p>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="closeAiJobPanel()" class="h-10 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 font-bold rounded-xl text-xs transition">
                             Отменить
+                        </button>
+                        <button onclick="retryAiJob()" class="h-10 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm">
+                            <i class="fa-solid fa-rotate-right"></i> Повторить
                         </button>
                     </div>
                 </div>
@@ -222,16 +289,17 @@
         </div>
 
         <!-- ==================== РАЗДЕЛ 2: ДАШБОРДЫ ==================== -->
-        <div id="section-dashboard" class="space-y-4 hidden">
-            <!-- Главная карточка итогов и выбора периода -->
-            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60">
+        <div id="section-dashboard" class="space-y-3.5 hidden">
+            
+            <!-- Карточка итогов и фильтров периода -->
+            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/70">
                 <div class="flex justify-between items-start mb-4">
                     <div>
-                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Итого расходов</span>
-                        <span id="total-sum" class="text-2xl font-black text-slate-900">0.00 RUB</span>
-                        <span id="total-count-badge" class="block text-[11px] text-slate-400 mt-0.5">0 позиций</span>
+                        <span class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 block mb-0.5">Итого расходов</span>
+                        <span id="total-sum" class="text-2xl font-black text-slate-900 tracking-tight">0.00 RUB</span>
+                        <span id="total-count-badge" class="block text-[11px] font-semibold text-slate-400 mt-0.5">Операций: 0</span>
                     </div>
-                    <select id="dashboard-currency" onchange="renderDashboard()" class="text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 rounded-xl px-3 py-2 focus:outline-none">
+                    <select id="dashboard-currency" onchange="renderDashboard()" class="h-9 text-xs font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200/80 rounded-xl px-3 focus:outline-none cursor-pointer">
                         <option value="RUB" selected>RUB ₽</option>
                         <option value="THB">THB ฿</option>
                         <option value="USD">USD $</option>
@@ -242,25 +310,24 @@
                     </select>
                 </div>
 
-                <!-- Удобные кнопки-таблетки выбора периода -->
-                <div class="flex gap-1.5 overflow-x-auto no-scrollbar pb-1" id="dashboard-period-pills">
-                    <button onclick="setDashboardPeriod('month')" data-period="month" class="dash-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900 text-white transition">Этот месяц</button>
-                    <button onclick="setDashboardPeriod('prev_month')" data-period="prev_month" class="dash-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Прошлый месяц</button>
-                    <button onclick="setDashboardPeriod('days30')" data-period="days30" class="dash-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">30 дней</button>
-                    <button onclick="setDashboardPeriod('year')" data-period="year" class="dash-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Год</button>
-                    <button onclick="setDashboardPeriod('all')" data-period="all" class="dash-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Всё время</button>
+                <!-- Горизонтальная лента периодов -->
+                <div class="flex gap-1.5 overflow-x-auto no-scrollbar" id="dashboard-period-pills">
+                    <button onclick="setDashboardPeriod('month')" data-period="month" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-bold bg-indigo-600 text-white transition">Этот месяц</button>
+                    <button onclick="setDashboardPeriod('prev_month')" data-period="prev_month" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Прошлый месяц</button>
+                    <button onclick="setDashboardPeriod('days30')" data-period="days30" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">30 дней</button>
+                    <button onclick="setDashboardPeriod('year')" data-period="year" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Год</button>
+                    <button onclick="setDashboardPeriod('all')" data-period="all" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Всё время</button>
                 </div>
             </div>
 
-            <!-- Настройки вида и график -->
-            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60">
-                <!-- Переключатели Группировки и Типа графика -->
+            <!-- Карточка графика и горизонтальных чипсов-фильтров -->
+            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/70">
                 <div class="grid grid-cols-2 gap-2 mb-4">
-                    <div class="flex bg-slate-100 p-1 rounded-xl">
-                        <button id="tab-mode-category" onclick="setDashboardMode('category')" class="flex-1 py-1.5 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition">Категории</button>
-                        <button id="tab-mode-shop" onclick="setDashboardMode('shop')" class="flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-500 transition">Магазины</button>
+                    <div class="flex bg-slate-100 p-1 rounded-xl h-9 items-center">
+                        <button id="tab-mode-category" onclick="setDashboardMode('category')" class="flex-1 h-7 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition">Категории</button>
+                        <button id="tab-mode-shop" onclick="setDashboardMode('shop')" class="flex-1 h-7 text-xs font-semibold rounded-lg text-slate-500 transition">Магазины</button>
                     </div>
-                    <select id="chart-type" onchange="renderDashboard()" class="text-xs font-semibold bg-slate-100 border-none rounded-xl px-3 py-2 text-slate-700 focus:outline-none">
+                    <select id="chart-type" onchange="renderDashboard()" class="h-9 text-xs font-bold bg-slate-100 border-none rounded-xl px-3 text-slate-700 focus:outline-none cursor-pointer">
                         <option value="doughnut" selected>Круговая</option>
                         <option value="bar_day">По дням</option>
                         <option value="bar_week">По неделям</option>
@@ -273,71 +340,68 @@
                     <canvas id="expensesChart"></canvas>
                 </div>
 
-                <!-- Дружелюбные чипсы-фильтры -->
-                <div class="mt-4 pt-3 border-t border-slate-100">
+                <!-- Горизонтальная лента чипсов-фильтров (без вертикального скролла внутри страницы) -->
+                <div class="mt-4 pt-3.5 border-t border-slate-100">
                     <div class="flex justify-between items-center mb-2">
-                        <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Фильтр элементов:</span>
+                        <span class="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">Фильтр:</span>
                         <div class="space-x-3">
-                            <button onclick="toggleAllFilters(true)" class="text-xs font-semibold text-blue-600">Выбрать все</button>
+                            <button onclick="toggleAllFilters(true)" class="text-xs font-bold text-indigo-600">Все</button>
                             <button onclick="toggleAllFilters(false)" class="text-xs font-semibold text-slate-400">Сбросить</button>
                         </div>
                     </div>
-                    <div id="filter-chips" class="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto py-1"></div>
+                    <div id="filter-chips" class="flex gap-1.5 overflow-x-auto no-scrollbar pb-1"></div>
                 </div>
             </div>
 
-            <!-- Детальная разбивка с прогресс-барами -->
-            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60">
-                <h3 class="font-bold text-slate-800 text-xs uppercase tracking-wider mb-3">Детализация расходов</h3>
+            <!-- Детализация с прогресс-барами -->
+            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/70">
+                <h3 class="font-extrabold text-slate-800 text-xs uppercase tracking-wider mb-3.5">Детализация расходов</h3>
                 <div id="dashboard-breakdown" class="space-y-3"></div>
             </div>
         </div>
 
         <!-- ==================== РАЗДЕЛ 3: ИСТОРИЯ ЧЕКОВ ==================== -->
-        <div id="section-history" class="space-y-4 hidden">
-            <div class="bg-white rounded-3xl p-4 shadow-sm border border-slate-200/60 space-y-3">
+        <div id="section-history" class="space-y-3.5 hidden">
+            <div class="bg-white rounded-3xl p-4 shadow-sm border border-slate-200/70 space-y-3">
                 <div class="flex justify-between items-center">
-                    <h3 class="font-bold text-slate-800 text-sm">История чеков</h3>
-                    <span id="history-receipts-count" class="text-xs font-semibold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg">0 чеков</span>
+                    <h3 class="font-extrabold text-slate-900 text-sm">История записей</h3>
+                    <span id="history-receipts-count" class="text-xs font-extrabold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-xl">0 чеков</span>
                 </div>
 
-                <!-- Фильтр по дате в истории чеков -->
-                <div>
-                    <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1.5">Период чеков:</label>
-                    <div class="flex gap-1.5 overflow-x-auto no-scrollbar pb-1" id="history-period-pills">
-                        <button onclick="setHistoryPeriod('all')" data-hperiod="all" class="hist-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white transition">Всё время</button>
-                        <button onclick="setHistoryPeriod('today')" data-hperiod="today" class="hist-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Сегодня</button>
-                        <button onclick="setHistoryPeriod('week')" data-hperiod="week" class="hist-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Текущая неделя</button>
-                        <button onclick="setHistoryPeriod('month')" data-hperiod="month" class="hist-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Текущий месяц</button>
-                        <button onclick="setHistoryPeriod('prev_month')" data-hperiod="prev_month" class="hist-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Прошлый месяц</button>
-                    </div>
+                <!-- Период чеков -->
+                <div class="flex gap-1.5 overflow-x-auto no-scrollbar" id="history-period-pills">
+                    <button onclick="setHistoryPeriod('all')" data-hperiod="all" class="hist-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-bold bg-indigo-600 text-white transition">Всё время</button>
+                    <button onclick="setHistoryPeriod('today')" data-hperiod="today" class="hist-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Сегодня</button>
+                    <button onclick="setHistoryPeriod('week')" data-hperiod="week" class="hist-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Неделя</button>
+                    <button onclick="setHistoryPeriod('month')" data-hperiod="month" class="hist-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Месяц</button>
+                    <button onclick="setHistoryPeriod('prev_month')" data-hperiod="prev_month" class="hist-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Прошлый мес.</button>
                 </div>
 
-                <!-- Сортировка чеков -->
-                <div class="flex items-center justify-between pt-2 border-t border-slate-100">
-                    <span class="text-xs font-semibold text-slate-500"><i class="fa-solid fa-arrow-down-wide-short mr-1"></i> Сортировка:</span>
+                <!-- Сортировка -->
+                <div class="flex items-center justify-between pt-2.5 border-t border-slate-100">
+                    <span class="text-xs font-bold text-slate-400">Сортировка:</span>
                     <div class="flex bg-slate-100 p-1 rounded-xl">
                         <button id="sort-by-receipt-date" onclick="setHistorySort('receiptDate')" class="px-2.5 py-1 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition">По дате чека</button>
-                        <button id="sort-by-created-at" onclick="setHistorySort('createdAt')" class="px-2.5 py-1 text-xs font-semibold rounded-lg text-slate-500 transition">По дате загрузки</button>
+                        <button id="sort-by-created-at" onclick="setHistorySort('createdAt')" class="px-2.5 py-1 text-xs font-semibold rounded-lg text-slate-500 transition">По загрузке</button>
                     </div>
                 </div>
             </div>
 
             <!-- Список чеков -->
-            <div id="receipts-list" class="space-y-3">
-                <p class="text-xs text-slate-400 text-center py-6">Пока нет сохраненных записей</p>
-            </div>
+            <div id="receipts-list" class="space-y-2.5"></div>
         </div>
 
         <!-- ==================== РАЗДЕЛ 4: КАТЕГОРИИ ==================== -->
-        <div id="section-categories" class="space-y-4 hidden">
-            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/60">
-                <h3 class="font-bold text-slate-800 text-sm mb-1">Настройка категорий</h3>
-                <p class="text-xs text-slate-400 mb-4">ИИ автоматически распределяет товары из чеков, голосовых и текстовых записей строго по этому списку.</p>
+        <div id="section-categories" class="space-y-3.5 hidden">
+            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/70">
+                <h3 class="font-extrabold text-slate-900 text-sm mb-1">Категории расходов</h3>
+                <p class="text-xs text-slate-400 mb-4">ИИ автоматически распределяет покупки строго по вашему списку.</p>
                 
                 <div class="flex gap-2 mb-4">
-                    <input type="text" id="new-category-input" placeholder="Название новой категории..." class="flex-1 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-blue-500">
-                    <button onclick="addCategory()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shrink-0">Добавить</button>
+                    <input type="text" id="new-category-input" onkeydown="if(event.key === 'Enter') addCategory()" placeholder="Новая категория..." class="flex-1 h-11 bg-slate-50 border border-slate-200 rounded-2xl px-3.5 focus:outline-none focus:bg-white focus:border-indigo-500">
+                    <button onclick="addCategory()" class="h-11 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-bold text-xs px-5 rounded-2xl transition shrink-0 shadow-sm shadow-indigo-600/15">
+                        Добавить
+                    </button>
                 </div>
 
                 <div id="categories-container" class="flex flex-wrap gap-2"></div>
@@ -345,16 +409,16 @@
         </div>
     </div>
 
-    <!-- Нижнее навигационное меню -->
+    <!-- ==================== НИЖНЯЯ НАВИГАЦИЯ ==================== -->
     <nav id="bottom-nav" class="bottom-nav fixed bottom-0 inset-x-0 bg-white/95 backdrop-blur-md border-t border-slate-200/80 z-40 hidden">
         <div class="max-w-md mx-auto grid grid-cols-4 px-2 py-1.5">
-            <button onclick="switchSection('home')" id="nav-btn-home" class="flex flex-col items-center justify-center py-1.5 text-blue-600 transition">
+            <button onclick="switchSection('home')" id="nav-btn-home" class="flex flex-col items-center justify-center py-1.5 text-indigo-600 transition">
                 <i class="fa-solid fa-wand-magic-sparkles text-lg mb-0.5"></i>
-                <span class="text-[10px] font-bold">Главное</span>
+                <span class="text-[10px] font-extrabold">Ввод</span>
             </button>
             <button onclick="switchSection('dashboard')" id="nav-btn-dashboard" class="flex flex-col items-center justify-center py-1.5 text-slate-400 hover:text-slate-600 transition">
                 <i class="fa-solid fa-chart-pie text-lg mb-0.5"></i>
-                <span class="text-[10px] font-medium">Дашборды</span>
+                <span class="text-[10px] font-medium">Аналитика</span>
             </button>
             <button onclick="switchSection('history')" id="nav-btn-history" class="flex flex-col items-center justify-center py-1.5 text-slate-400 hover:text-slate-600 transition">
                 <i class="fa-solid fa-receipt text-lg mb-0.5"></i>
@@ -367,11 +431,11 @@
         </div>
     </nav>
 
-    <!-- Логика приложения -->
+    <!-- ==================== ЛОГИКА ПРИЛОЖЕНИЯ ==================== -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-        import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc, getDoc, setDoc, query, orderBy, writeBatch } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        import { getFirestore, collection, getDocs, deleteDoc, doc, updateDoc, getDoc, setDoc, query, orderBy, writeBatch } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyBtzjFba5Ho2jORrSi5GKvucaDNzCCAh5g",
@@ -387,13 +451,33 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
 
-        // ==================== СПИСОК МОДЕЛЕЙ И АВТОРОТАЦИЯ ====================
+        // Получение локальной даты устройства YYYY-MM-DD
+        function getTodayDateStr() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        // ==================== МОДЕЛИ GEMINI И УМНАЯ РОТАЦИЯ ====================
         const GEMINI_MODELS = [
             { id: 'gemini-3.8-flash', label: 'flash 3.8' },
             { id: 'gemini-3.6-flash', label: 'flash 3.6' },
             { id: 'gemini-3.5-flash-lite', label: 'flash 3.5 lite' }
         ];
-        let currentModelIndex = 0;
+
+        // Запоминаем рабочую модель до конца дня, чтобы не тратить время на исчерпанную
+        const savedModelDate = localStorage.getItem('geminiModelDate');
+        const savedModelIdx = Number(localStorage.getItem('geminiModelIdx')) || 0;
+        let currentModelIndex = (savedModelDate === getTodayDateStr() && savedModelIdx < GEMINI_MODELS.length) ? savedModelIdx : 0;
+
+        function setAndSaveModelIndex(idx) {
+            currentModelIndex = idx % GEMINI_MODELS.length;
+            localStorage.setItem('geminiModelDate', getTodayDateStr());
+            localStorage.setItem('geminiModelIdx', String(currentModelIndex));
+            updateModelBadgeUI();
+        }
 
         function updateModelBadgeUI() {
             const badgeText = document.getElementById('active-model-text');
@@ -402,36 +486,42 @@
             }
         }
 
-        // Показ всплывающего уведомления (Toast) пользователю
-        function showToast(message, type = 'warning') {
+        function showToast(message, type = 'info') {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
-            const bgClass = type === 'warning' ? 'bg-amber-500 text-white' : 'bg-indigo-600 text-white';
-            const iconClass = type === 'warning' ? 'fa-bolt' : 'fa-microchip';
+            
+            let bgClass = 'bg-slate-900 text-white';
+            let iconClass = 'fa-circle-check text-emerald-400';
+            if (type === 'warning') {
+                bgClass = 'bg-amber-500 text-white';
+                iconClass = 'fa-bolt text-white';
+            } else if (type === 'model') {
+                bgClass = 'bg-indigo-600 text-white';
+                iconClass = 'fa-microchip text-indigo-200';
+            }
 
-            toast.className = `toast-animate ${bgClass} px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 text-xs font-bold pointer-events-auto border border-white/20`;
+            toast.className = `toast-animate ${bgClass} px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 text-xs font-bold pointer-events-auto border border-white/15`;
             toast.innerHTML = `
-                <i class="fa-solid ${iconClass} text-base shrink-0"></i>
+                <i class="fa-solid ${iconClass} text-sm shrink-0"></i>
                 <div class="flex-1 leading-snug">${message}</div>
             `;
             container.appendChild(toast);
 
             setTimeout(() => {
                 toast.style.opacity = '0';
-                toast.style.transition = 'opacity 0.3s ease';
-                setTimeout(() => toast.remove(), 300);
-            }, 4500);
+                toast.style.transition = 'opacity 0.25s ease';
+                setTimeout(() => toast.remove(), 250);
+            }, 3500);
         }
 
-        // Ручное переключение модели по клику на бейдж в шапке
         window.cycleModelManually = function() {
             const prevModel = GEMINI_MODELS[currentModelIndex];
-            currentModelIndex = (currentModelIndex + 1) % GEMINI_MODELS.length;
+            setAndSaveModelIndex(currentModelIndex + 1);
             const nextModel = GEMINI_MODELS[currentModelIndex];
-            updateModelBadgeUI();
-            showToast(`Модель переключена вручную: ${prevModel.label} ➔ ${nextModel.label}`, 'info');
+            showToast(`Модель переключена: ${prevModel.label} ➔ ${nextModel.label}`, 'model');
         };
 
+        // Глобальное состояние
         let currentUser = null;
         let currentUserApiKey = "";
         let chartInstance = null;
@@ -442,34 +532,22 @@
         let pendingFile = null;
         let pendingFileDataUrl = null;
 
-        // Состояние дашборда
         let dashboardMode = 'category';
         let dashboardPeriod = 'month';
         let selectedFilterKeys = new Set();
 
-        // Состояние истории чеков
         let historyPeriod = 'all';
         let historySort = 'receiptDate';
 
-        // Состояние текущего запроса к ИИ
         let lastAiJob = null;
 
-        // Переменные для аудио (голосовой ввод трат)
         let mediaRecorder = null;
         let audioChunks = [];
         let isRecordingVoiceExpense = false;
 
-        const CHART_COLORS = ['#2563eb', '#db2777', '#059669', '#d97706', '#7c3aed', '#0891b2', '#e11d48', '#4f46e5', '#65a30d', '#475569'];
+        const CHART_COLORS = ['#4f46e5', '#db2777', '#059669', '#d97706', '#7c3aed', '#0891b2', '#e11d48', '#2563eb', '#65a30d', '#475569'];
 
-        function getTodayDateStr() {
-            const now = new Date();
-            const year = now.getFullYear();
-            const month = String(now.getMonth() + 1).padStart(2, '0');
-            const day = String(now.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-        }
-
-        // Переключение разделов меню
+        // Навигация между экранами
         window.switchSection = function(sectionName) {
             const sections = ['home', 'dashboard', 'history', 'categories'];
             sections.forEach(s => {
@@ -477,12 +555,12 @@
                 const btnEl = document.getElementById(`nav-btn-${s}`);
                 if (s === sectionName) {
                     secEl.classList.remove('hidden');
-                    btnEl.className = "flex flex-col items-center justify-center py-1.5 text-blue-600 transition";
-                    btnEl.querySelector('span').classList.replace('font-medium', 'font-bold');
+                    btnEl.className = "flex flex-col items-center justify-center py-1.5 text-indigo-600 transition";
+                    btnEl.querySelector('span').classList.replace('font-medium', 'font-extrabold');
                 } else {
                     secEl.classList.add('hidden');
                     btnEl.className = "flex flex-col items-center justify-center py-1.5 text-slate-400 hover:text-slate-600 transition";
-                    btnEl.querySelector('span').classList.replace('font-bold', 'font-medium');
+                    btnEl.querySelector('span').classList.replace('font-extrabold', 'font-medium');
                 }
             });
 
@@ -494,8 +572,9 @@
             window.scrollTo({ top: 0, behavior: 'smooth' });
         };
 
+        // ==================== АВТОРИЗАЦИЯ И НАСТРОЙКИ ====================
         window.handleAuth = async function() {
-            const email = document.getElementById('auth-email').value;
+            const email = document.getElementById('auth-email').value.trim();
             const password = document.getElementById('auth-password').value;
             const errBox = document.getElementById('auth-error');
             errBox.classList.add('hidden');
@@ -537,7 +616,7 @@
                         document.getElementById('apikey-screen').classList.remove('hidden');
                     }
                 } catch (err) {
-                    alert("Ошибка загрузки данных профиля: " + err.message);
+                    alert("Ошибка загрузки профиля: " + err.message);
                     document.getElementById('auth-screen').classList.remove('hidden');
                 }
             } else {
@@ -558,6 +637,7 @@
             document.getElementById('apikey-screen').classList.add('hidden');
             document.getElementById('app-screen').classList.remove('hidden');
             document.getElementById('bottom-nav').classList.remove('hidden');
+            showToast('API-ключ сохранен');
             loadData();
         };
 
@@ -566,7 +646,8 @@
             document.getElementById('apikey-screen').classList.remove('hidden');
         };
 
-        async function getHistoricalRates(dateStr) {
+        // ==================== КУРСЫ ВАЛЮТ С КЭШИРОВАНИЕМ ====================
+        async function getHistoricalRates() {
             if (ratesCache['latest']) return ratesCache['latest'];
 
             try {
@@ -583,20 +664,19 @@
             return { RUB: 1 };
         }
 
-        // Надежное извлечение JSON-объекта из любого текстового ответа ИИ
+        // Извлечение JSON из ответа любой модели
         function extractJsonObject(rawText) {
             if (!rawText) throw new Error("Пустой ответ от ИИ");
             const firstBrace = rawText.indexOf('{');
             const lastBrace = rawText.lastIndexOf('}');
             if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-                const jsonCandidate = rawText.substring(firstBrace, lastBrace + 1);
-                return JSON.parse(jsonCandidate);
+                return JSON.parse(rawText.substring(firstBrace, lastBrace + 1));
             }
             const cleaned = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
             return JSON.parse(cleaned);
         }
 
-        // Запрос к Gemini с автоматическим переключением моделей при исчерпании лимитов или таймауте
+        // ==================== ВЫЗОВ GEMINI С АВТОСМЕНОЙ МОДЕЛИ ====================
         async function callGeminiWithModelFallback(basePayload) {
             const totalModels = GEMINI_MODELS.length;
             let lastError = null;
@@ -605,10 +685,9 @@
                 const activeModel = GEMINI_MODELS[currentModelIndex];
                 const statusTitleEl = document.getElementById('ai-job-status-title');
                 if (statusTitleEl) {
-                    statusTitleEl.innerText = `Запрос к ИИ (${activeModel.label})...`;
+                    statusTitleEl.innerText = `ИИ (${activeModel.label}) обрабатывает...`;
                 }
 
-                // Делаем быстрый запрос с отключенным thinkingBudget для мгновенного ответа
                 const payloadWithFastThinking = {
                     ...basePayload,
                     generationConfig: {
@@ -618,7 +697,6 @@
                 };
 
                 const controller = new AbortController();
-                // 20 секунд достаточно даже для чека; если висит дольше — переключаем модель
                 const timeoutId = setTimeout(() => controller.abort(), 20000);
 
                 try {
@@ -631,7 +709,6 @@
 
                     let data = await response.json();
 
-                    // Если конкретная модель не поддерживает thinkingConfig (400 Invalid Argument), мгновенно повторяем без него
                     if (data.error && data.error.code === 400 && JSON.stringify(data.error).includes('thinking')) {
                         response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${activeModel.id}:generateContent?key=${currentUserApiKey}`, {
                             method: 'POST',
@@ -649,7 +726,6 @@
                         const errStatus = data.error.status || '';
                         const errMsg = data.error.message || 'Ошибка API';
 
-                        // Проверяем на исчерпание лимитов (429 / RESOURCE_EXHAUSTED / quota) или перегрузку/недоступность (503 / 404)
                         const isQuotaOrLimit =
                             errCode === 429 ||
                             errCode === 503 ||
@@ -659,11 +735,10 @@
 
                         if (isQuotaOrLimit && attempt < totalModels - 1) {
                             const oldModel = activeModel.label;
-                            currentModelIndex = (currentModelIndex + 1) % totalModels;
+                            setAndSaveModelIndex(currentModelIndex + 1);
                             const newModel = GEMINI_MODELS[currentModelIndex].label;
-                            updateModelBadgeUI();
-                            showToast(`Лимит модели ${oldModel} исчерпан. Автоматическое переключение на ${newModel}`, 'warning');
-                            continue; // Сразу пробуем следующую модель
+                            showToast(`Лимит ${oldModel} исчерпан. Переключено на ${newModel}`, 'warning');
+                            continue;
                         }
 
                         throw new Error(`[${activeModel.label}] ${errMsg}`);
@@ -674,30 +749,27 @@
                     clearTimeout(timeoutId);
                     lastError = err;
 
-                    // Если модель зависла по таймауту — тоже переключаемся на следующую модель в списке
                     if (err.name === 'AbortError') {
                         if (attempt < totalModels - 1) {
                             const oldModel = activeModel.label;
-                            currentModelIndex = (currentModelIndex + 1) % totalModels;
+                            setAndSaveModelIndex(currentModelIndex + 1);
                             const newModel = GEMINI_MODELS[currentModelIndex].label;
-                            updateModelBadgeUI();
-                            showToast(`Модель ${oldModel} долго не отвечает. Переключение на ${newModel}`, 'warning');
+                            showToast(`Таймаут ${oldModel}. Переключено на ${newModel}`, 'warning');
                             continue;
                         }
-                        throw new Error('Все модели превысили время ожидания (20 сек). Проверьте соединение с интернетом.');
+                        throw new Error('Превышено время ожидания ответа от всех моделей (20 сек). Проверьте интернет.');
                     }
 
-                    // Если ошибка не связана с квотой/таймаутом, или мы проверили все модели — пробрасываем ошибку
                     if (attempt === totalModels - 1) {
                         throw err;
                     }
                 }
             }
 
-            throw lastError || new Error('Не удалось получить ответ от моделей Gemini');
+            throw lastError || new Error('Не удалось получить ответ от ИИ');
         }
 
-        // ==================== ОТОБРАЖЕНИЕ И ОБРАБОТКА ЗАПРОСА В ИИ ====================
+        // ==================== УПРАВЛЕНИЕ ПАНЕЛЬЮ ИИ-ЗАПРОСА ====================
         function showAiJobPanel(job) {
             const panel = document.getElementById('ai-job-panel');
             const imgBox = document.getElementById('ai-job-image-box');
@@ -713,15 +785,6 @@
             document.getElementById('ai-job-error-icon').classList.add('hidden');
             document.getElementById('ai-job-close-btn').classList.add('hidden');
             document.getElementById('ai-job-error-box').classList.add('hidden');
-
-            const activeLabel = GEMINI_MODELS[currentModelIndex].label;
-            if (job.type === 'receipt') {
-                document.getElementById('ai-job-status-title').innerText = `ИИ (${activeLabel}) анализирует чек...`;
-            } else if (job.type === 'voice') {
-                document.getElementById('ai-job-status-title').innerText = `ИИ (${activeLabel}) слушает запись...`;
-            } else {
-                document.getElementById('ai-job-status-title').innerText = `ИИ (${activeLabel}) разбирает текст...`;
-            }
 
             imgBox.classList.add('hidden');
             audioBox.classList.add('hidden');
@@ -745,7 +808,7 @@
             document.getElementById('ai-job-spinner').classList.add('hidden');
             document.getElementById('ai-job-error-icon').classList.remove('hidden');
             document.getElementById('ai-job-close-btn').classList.remove('hidden');
-            document.getElementById('ai-job-status-title').innerText = 'Не удалось обработать запрос';
+            document.getElementById('ai-job-status-title').innerText = 'Ошибка обработки';
             document.getElementById('ai-job-error-msg').innerText = errMsg;
             document.getElementById('ai-job-error-box').classList.remove('hidden');
         }
@@ -776,16 +839,19 @@
                 const items = parsedData.items || [];
                 const createdAt = new Date().toISOString();
 
-                const historicalRates = await getHistoricalRates(receiptDate);
+                if (items.length === 0) {
+                    throw new Error('ИИ не обнаружил ни одной финансовой позиции в запросе.');
+                }
 
-                // Пакетная запись всех позиций за 1 сетевой запрос
+                const historicalRates = await getHistoricalRates();
+
                 const batch = writeBatch(db);
                 const itemsColRef = collection(db, `users/${currentUser.uid}/items`);
                 const newlyAddedItems = [];
 
                 for (let item of items) {
                     const originalPrice = Number(item.price) || 0;
-                    const currency = job.type === 'receipt' ? job.selectedCurrency : (item.currency || 'RUB');
+                    const currency = job.type === 'receipt' ? job.selectedCurrency : (item.currency || job.selectedCurrency || 'THB');
                     const rateToRub = historicalRates[currency] ? (1 / historicalRates[currency]) : 1;
                     const priceInRub = originalPrice * rateToRub;
 
@@ -808,19 +874,19 @@
 
                 await batch.commit();
 
-                // Обновляем локальный массив без полного перекачивания БД
                 allItems = [...newlyAddedItems, ...allItems];
                 initFilters();
                 renderDashboard();
                 renderList();
 
                 closeAiJobPanel();
+                showToast(`Добавлено позиций: ${newlyAddedItems.length} (${shopName})`);
             } catch (err) {
-                showAiJobError(err.message || 'Высокая нагрузка на сервер ИИ или сбой сети. Попробуйте еще раз.');
+                showAiJobError(err.message || 'Сбой соединения или перегрузка сервера ИИ.');
             }
         }
 
-        // ==================== ТЕКСТОВЫЙ ВВОД ТРАТ ====================
+        // ==================== ТЕКСТОВЫЙ ВВОД ====================
         window.submitTextExpense = async function() {
             const inputEl = document.getElementById('text-expense-input');
             const userText = inputEl.value.trim();
@@ -838,12 +904,12 @@
             const prompt = `Сегодняшняя дата: ${todayStr} (текущий год — ${currentYear}).
 Проанализируй текстовую запись пользователя о расходах: "${userText}".
 Правила:
-1. Если пользователь не указал год (например, написал "вчера", "15 октября" или вообще не указал дату), обязательно используй ${currentYear} год (или рассчитай дату относительно ${todayStr}). Ни в коем случае не ставь 2024 или 2025 год!
+1. Если пользователь не указал год, обязательно используй ${currentYear} год (или рассчитай дату относительно ${todayStr}).
 2. Если валюта не названа явно в тексте, используй валюту по умолчанию: "${defaultCurrency}". Допустимые коды валют: RUB, THB, VND, IDR, USD, EUR, KZT.
 3. Если в тексте перечислено несколько покупок, создай отдельный элемент в массиве items для каждой.
 4. Распредели каждую покупку строго по одной из доступных категорий: ${JSON.stringify(userCategories)}.
 
-Верни ТОЛЬКО валидный JSON-объект без пояснений и без markdown-оберток следующей структуры:
+Верни ТОЛЬКО валидный JSON-объект без пояснений:
 {
   "shopName": "Название магазина/места из текста или 'Текстовый ввод'",
   "receiptDate": "YYYY-MM-DD",
@@ -853,22 +919,22 @@
 }`;
 
             const payload = {
-                contents: [{
-                    parts: [{ text: prompt }]
-                }]
+                contents: [{ parts: [{ text: prompt }] }]
             };
 
             inputEl.value = '';
+            inputEl.blur();
 
             await executeAiJob({
                 type: 'text',
                 prompt: prompt,
                 payload: payload,
-                rawText: userText
+                rawText: userText,
+                selectedCurrency: defaultCurrency
             });
         };
 
-        // ==================== АУДИОЗАПИСЬ (ГОЛОСОВОЙ ВВОД) ====================
+        // ==================== ГОЛОСОВОЙ ВВОД ====================
         async function startAudioRecording() {
             audioChunks = [];
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -906,6 +972,7 @@
         window.toggleVoiceExpenseRecording = async function() {
             const btn = document.getElementById('voice-expense-btn');
             const textSpan = document.getElementById('voice-expense-text');
+            const iconEl = document.getElementById('voice-expense-icon');
 
             if (!isRecordingVoiceExpense) {
                 if (userCategories.length === 0) {
@@ -915,31 +982,35 @@
                 try {
                     await startAudioRecording();
                     isRecordingVoiceExpense = true;
-                    btn.className = "bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-2xl text-xs font-bold transition flex items-center gap-2 animate-pulse shrink-0 shadow-sm";
+                    btn.className = "w-[118px] h-11 bg-red-600 hover:bg-red-700 text-white rounded-2xl text-xs font-bold transition flex items-center justify-center gap-1.5 animate-pulse shrink-0 shadow-sm";
+                    iconEl.className = "fa-solid fa-stop";
                     textSpan.innerText = 'Стоп';
                 } catch (err) {
                     alert('Не удалось получить доступ к микрофону: ' + err.message);
                 }
             } else {
                 isRecordingVoiceExpense = false;
-                btn.className = "bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-3 rounded-2xl text-xs font-bold transition flex items-center gap-2 shrink-0 shadow-sm";
+                btn.className = "w-[118px] h-11 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white rounded-2xl text-xs font-bold transition flex items-center justify-center gap-1.5 shrink-0 shadow-sm shadow-indigo-600/15";
+                iconEl.className = "fa-solid fa-microphone";
                 textSpan.innerText = 'Записать';
 
                 const audioData = await stopAudioRecording();
                 if (audioData) {
+                    const defaultCurrency = document.getElementById('receipt-currency').value;
                     const todayStr = getTodayDateStr();
                     const currentYear = new Date().getFullYear();
 
                     const prompt = `Сегодняшняя дата: ${todayStr} (текущий год — ${currentYear}).
-Прослушай голосовое сообщение пользователя с описанием финансовой траты. 
-Если пользователь не назвал год (например, сказал "15 октября" или "сегодня"), обязательно используй ${currentYear} год (или рассчитай дату относительно ${todayStr}). Ни в коем случае не ставь 2024 год!
-Доступные пользователю категории: ${JSON.stringify(userCategories)}.
-Извлеки данные и верни ТОЛЬКО валидный JSON-объект следующей структуры:
+Прослушай голосовое сообщение пользователя с описанием финансовой траты.
+Если пользователь не назвал год, используй ${currentYear} год (или рассчитай дату относительно ${todayStr}).
+Если валюта не озвучена, используй валюту по умолчанию: "${defaultCurrency}".
+Доступные категории: ${JSON.stringify(userCategories)}.
+Верни ТОЛЬКО валидный JSON-объект:
 {
-  "shopName": "Название магазина или места (например, ВТБ, 7-Eleven, Заправка)",
+  "shopName": "Название магазина/места из речи или 'Голосовой ввод'",
   "receiptDate": "YYYY-MM-DD",
   "items": [
-    {"originalName": "Описание из речи", "name": "Название на русском", "price": число_суммы, "currency": "RUB или THB или VND или IDR или USD или EUR или KZT", "category": "подходящая категория из списка"}
+    {"originalName": "Описание из речи", "name": "Название на русском", "price": 100, "currency": "RUB или THB или VND или IDR или USD или EUR или KZT", "category": "подходящая категория из списка"}
   ]
 }`;
 
@@ -956,13 +1027,14 @@
                         type: 'voice',
                         prompt: prompt,
                         payload: payload,
-                        audioUrl: audioData.audioUrl
+                        audioUrl: audioData.audioUrl,
+                        selectedCurrency: defaultCurrency
                     });
                 }
             }
         };
 
-        // ==================== ФОТО ЧЕКА (СО СЖАТИЕМ ЧЕРЕЗ CANVAS) ====================
+        // ==================== СКАНИРОВАНИЕ ЧЕКА ====================
         function compressAndConvertToBase64(file, maxDimension = 1200, quality = 0.75) {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -1043,23 +1115,23 @@
 
             let prompt = `Сегодняшняя дата: ${todayStr} (текущий год — ${currentYear}).
 Распознай чек. Строго соблюдай правила для даты (receiptDate):
-1. Сейчас ${currentYear} год! Если на чеке указан ${currentYear} год (или двухзначный '26'), ни в коем случае НЕ меняй его на 2024 или 2025. Внимательно отличай цифру 6 от 4.
-2. Если указан год по буддийскому календарю: полный (например, 2569) — вычти 543 (получится 2026); сокращенный двузначный (например, 69) — это тоже 2569 год (2026).
-3. Если год на чеке отсутствует (указаны только день и месяц), подставь ${currentYear} год.
-4. Приведи дату строго к формату YYYY-MM-DD. Если дату найти невозможно, верни "${todayStr}".
+1. Сейчас ${currentYear} год! Если на чеке указан ${currentYear} год (или '26'), не меняй его на 2024 или 2025.
+2. Если указан год по буддийскому календарю: 2569 (или 69) — вычти 543 (получится 2026).
+3. Если год отсутствует, подставь ${currentYear} год.
+4. Приведи дату к формату YYYY-MM-DD. Если дату найти невозможно, верни "${todayStr}".
 
-Определи название магазина (супермаркета, торговой точки). Если название неизвестно, верни "Не указано".
+Определи название магазина (если неизвестно — "Не указано").
 Для каждого товара укажи:
-1. originalName: оригинальное название товара с чека на исходном языке.
-2. name: перевод названия товара на русский язык.
-3. price: цена (число в валюте чека).
-4. category: распредели строго по одной из созданных пользователем категорий: ${JSON.stringify(userCategories)}.`;
+1. originalName: название с чека на исходном языке.
+2. name: понятный перевод на русский язык.
+3. price: итоговая цена позиции (число).
+4. category: строго одна из категорий: ${JSON.stringify(userCategories)}.`;
 
             if (userNote) {
-                prompt += `\n\nВАЖНОЕ УКАЗАНИЕ ОТ ПОЛЬЗОВАТЕЛЯ К ЭТОМУ ЧЕКУ: "${userNote}". Обязательно учти это при разборе позиций и сумм!`;
+                prompt += `\n\nВАЖНОЕ УКАЗАНИЕ ПОЛЬЗОВАТЕЛЯ: "${userNote}". Обязательно учти при разборе!`;
             }
 
-            prompt += `\n\nВерни ответ ТОЛЬКО в формате валидного JSON-объекта без лишнего текста следующей структуры:
+            prompt += `\n\nВерни ответ ТОЛЬКО в формате валидного JSON-объекта:
 {
   "shopName": "Название магазина",
   "receiptDate": "YYYY-MM-DD",
@@ -1101,6 +1173,7 @@
             renderCategories();
             initFilters();
             renderList();
+            showToast(`Категория «${catName}» добавлена`);
         };
 
         window.deleteCategory = async function(catName) {
@@ -1121,12 +1194,17 @@
                 container.innerHTML = `<p class="text-xs text-slate-400">Список пуст. Добавьте свою первую категорию выше.</p>`;
                 return;
             }
-            container.innerHTML = userCategories.map(cat => `
-                <span class="inline-flex items-center gap-1.5 bg-slate-100 text-slate-800 text-xs px-3.5 py-2 rounded-xl font-semibold">
-                    ${cat}
-                    <button onclick="deleteCategory('${cat}')" class="text-slate-400 hover:text-red-500 ml-1"><i class="fa-solid fa-xmark"></i></button>
-                </span>
-            `).join('');
+            container.innerHTML = userCategories.map(cat => {
+                const safeCat = cat.replace(/'/g, "\\'");
+                return `
+                    <span class="inline-flex items-center gap-2 bg-slate-100 text-slate-800 text-xs px-3.5 py-2 rounded-2xl font-bold">
+                        <span>${cat}</span>
+                        <button onclick="deleteCategory('${safeCat}')" class="w-5 h-5 rounded-full bg-slate-200/80 text-slate-500 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition">
+                            <i class="fa-solid fa-xmark text-[10px]"></i>
+                        </button>
+                    </span>
+                `;
+            }).join('');
         }
 
         // ==================== ЗАГРУЗКА ДАННЫХ ====================
@@ -1135,7 +1213,7 @@
             if (catDoc.exists() && catDoc.data().list) {
                 userCategories = catDoc.data().list;
             } else {
-                userCategories = ['Еда', 'Развлечения'];
+                userCategories = ['Еда и супермаркеты', 'Кафе и рестораны', 'Транспорт', 'Жилье и быт', 'Развлечения'];
                 await setDoc(doc(db, `users/${currentUser.uid}/settings`, 'categories'), { list: userCategories });
             }
             renderCategories();
@@ -1157,9 +1235,9 @@
             dashboardPeriod = period;
             document.querySelectorAll('.dash-period-btn').forEach(btn => {
                 if (btn.dataset.period === period) {
-                    btn.className = "dash-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900 text-white transition";
+                    btn.className = "dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-bold bg-indigo-600 text-white transition";
                 } else {
-                    btn.className = "dash-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition";
+                    btn.className = "dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition";
                 }
             });
             renderDashboard();
@@ -1171,11 +1249,11 @@
             const btnShop = document.getElementById('tab-mode-shop');
 
             if (mode === 'category') {
-                btnCat.className = "flex-1 py-1.5 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition";
-                btnShop.className = "flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-500 transition";
+                btnCat.className = "flex-1 h-7 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition";
+                btnShop.className = "flex-1 h-7 text-xs font-semibold rounded-lg text-slate-500 transition";
             } else {
-                btnShop.className = "flex-1 py-1.5 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition";
-                btnCat.className = "flex-1 py-1.5 text-xs font-semibold rounded-lg text-slate-500 transition";
+                btnShop.className = "flex-1 h-7 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition";
+                btnCat.className = "flex-1 h-7 text-xs font-semibold rounded-lg text-slate-500 transition";
             }
             initFilters();
             renderDashboard();
@@ -1205,7 +1283,7 @@
                 const isSelected = selectedFilterKeys.has(k);
                 const safeKey = k.replace(/'/g, "\\'");
                 return `
-                    <button onclick="toggleFilterChip('${safeKey}')" class="px-3 py-1.5 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${isSelected ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500'}">
+                    <button onclick="toggleFilterChip('${safeKey}')" class="shrink-0 px-3 h-8 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${isSelected ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500'}">
                         <i class="fa-solid ${isSelected ? 'fa-check text-[10px]' : 'fa-plus text-[10px] opacity-60'}"></i>
                         <span>${k}</span>
                     </button>
@@ -1288,7 +1366,7 @@
             const targetCurrency = document.getElementById('dashboard-currency').value;
             const chartType = document.getElementById('chart-type').value;
             
-            const latestRates = await getHistoricalRates(getTodayDateStr());
+            const latestRates = await getHistoricalRates();
             const rubToTargetRate = latestRates[targetCurrency] || 1;
 
             const filteredItems = filteredByPeriod.filter(item => {
@@ -1319,7 +1397,7 @@
 
             const breakdownEl = document.getElementById('dashboard-breakdown');
             if (sortedGroupKeys.length === 0) {
-                breakdownEl.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">Нет данных за выбранный период</p>`;
+                breakdownEl.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">Нет расходов за выбранный период</p>`;
             } else {
                 breakdownEl.innerHTML = sortedGroupKeys.map((key, idx) => {
                     const val = statsData[key];
@@ -1327,14 +1405,14 @@
                     const color = CHART_COLORS[idx % CHART_COLORS.length];
                     return `
                         <div>
-                            <div class="flex justify-between items-center text-xs mb-1">
-                                <div class="flex items-center gap-2 font-semibold text-slate-800">
+                            <div class="flex justify-between items-center text-xs mb-1.5">
+                                <div class="flex items-center gap-2 font-bold text-slate-800">
                                     <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ${color}"></span>
                                     <span>${key}</span>
                                 </div>
                                 <div class="text-right">
-                                    <span class="font-bold text-slate-900">${formatMoney(val)} ${targetCurrency}</span>
-                                    <span class="text-[11px] text-slate-400 ml-1">(${percent}%)</span>
+                                    <span class="font-extrabold text-slate-900">${formatMoney(val)} ${targetCurrency}</span>
+                                    <span class="text-[11px] font-semibold text-slate-400 ml-1">${percent}%</span>
                                 </div>
                             </div>
                             <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
@@ -1351,7 +1429,7 @@
             if (chartType === 'doughnut') {
                 const labels = sortedGroupKeys.length > 0 ? sortedGroupKeys : ['Нет данных'];
                 const dataVals = sortedGroupKeys.length > 0 ? sortedGroupKeys.map(k => statsData[k]) : [1];
-                const bgColors = sortedGroupKeys.length > 0 ? sortedGroupKeys.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]) : ['#e2e8f0'];
+                const bgColors = sortedGroupKeys.length > 0 ? sortedGroupKeys.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]) : ['#f1f5f9'];
 
                 chartInstance = new Chart(ctx, {
                     type: 'doughnut',
@@ -1367,10 +1445,8 @@
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
-                        cutout: '65%',
-                        plugins: {
-                            legend: { display: false }
-                        }
+                        cutout: '68%',
+                        plugins: { legend: { display: false } }
                     }
                 });
             } else {
@@ -1419,7 +1495,7 @@
                         datasets: [{
                             label: `Сумма (${targetCurrency})`,
                             data: values,
-                            backgroundColor: '#2563eb',
+                            backgroundColor: '#4f46e5',
                             borderRadius: 8
                         }]
                     },
@@ -1436,14 +1512,14 @@
             }
         };
 
-        // ==================== ИСТОРИЯ ЧЕКОВ (ФИЛЬТРАЦИЯ И СОРТИРОВКА) ====================
+        // ==================== ИСТОРИЯ ЧЕКОВ И МОДАЛЬНОЕ РЕДАКТИРОВАНИЕ ====================
         window.setHistoryPeriod = function(period) {
             historyPeriod = period;
             document.querySelectorAll('.hist-period-btn').forEach(btn => {
                 if (btn.dataset.hperiod === period) {
-                    btn.className = "hist-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-600 text-white transition";
+                    btn.className = "hist-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-bold bg-indigo-600 text-white transition";
                 } else {
-                    btn.className = "hist-period-btn shrink-0 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition";
+                    btn.className = "hist-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition";
                 }
             });
             renderList();
@@ -1501,7 +1577,7 @@
             countEl.innerText = `${receipts.length} чек(ов)`;
 
             if (receipts.length === 0) {
-                listEl.innerHTML = `<div class="bg-white rounded-3xl p-8 text-center text-xs text-slate-400 border border-slate-200/60">За выбранный период чеков не найдено</div>`;
+                listEl.innerHTML = `<div class="bg-white rounded-3xl p-8 text-center text-xs text-slate-400 border border-slate-200/70">За выбранный период записей не найдено</div>`;
                 return;
             }
 
@@ -1510,44 +1586,51 @@
                 const totalRub = receipt.items.reduce((s, i) => s + (Number(i.priceRub) || 0), 0);
                 const currency = receipt.items[0] ? receipt.items[0].currency : 'RUB';
                 const totalOriginal = receipt.items.reduce((s, i) => s + (Number(i.originalPrice) || 0), 0);
-                const uploadedDateStr = receipt.createdAt ? formatDateReadable(receipt.createdAt.split('T')[0]) : '—';
+                const safeShop = (receipt.shop || '').replace(/'/g, "\\'");
 
                 return `
-                    <div class="bg-white rounded-3xl p-4 border border-slate-200/60 shadow-sm">
-                        <div onclick="toggleReceipt('receipt-body-${index}')" class="flex justify-between items-center cursor-pointer select-none">
-                            <div class="flex items-center gap-2.5">
-                                <span class="bg-blue-600 text-white text-xs font-bold px-2.5 py-1 rounded-xl">#${receiptNum}</span>
-                                <div>
-                                    <input type="text" value="${receipt.shop}" onclick="event.stopPropagation()" onchange="updateReceiptShop(this, '${receipt.createdAt}')" class="font-bold text-slate-800 text-sm bg-transparent border-b border-dashed border-slate-300 focus:border-blue-500 focus:outline-none w-36" title="Нажмите, чтобы изменить магазин">
-                                    <div class="flex items-center gap-2 mt-0.5">
-                                        <input type="date" value="${receipt.receiptDate}" onclick="event.stopPropagation()" onchange="updateReceiptDate(this, '${receipt.createdAt}')" class="text-[11px] font-medium text-slate-500 bg-transparent border-none focus:outline-none p-0 cursor-pointer" title="Изменить дату чека">
-                                        <span class="text-[10px] text-slate-300" title="Дата загрузки">• загр. ${uploadedDateStr}</span>
+                    <div class="bg-white rounded-3xl p-4 border border-slate-200/70 shadow-sm">
+                        <div onclick="toggleReceipt('receipt-body-${index}')" class="flex justify-between items-center cursor-pointer select-none gap-2">
+                            <div class="flex items-center gap-3 min-w-0">
+                                <span class="bg-indigo-50 text-indigo-600 text-xs font-extrabold px-2.5 py-1.5 rounded-xl shrink-0">#${receiptNum}</span>
+                                <div class="min-w-0">
+                                    <p class="font-extrabold text-slate-900 text-sm truncate">${receipt.shop}</p>
+                                    <div class="flex items-center gap-2 mt-0.5 text-[11px] font-semibold text-slate-400">
+                                        <span><i class="fa-regular fa-calendar mr-1"></i>${formatDateReadable(receipt.receiptDate)}</span>
+                                        <span>• ${receipt.items.length} поз.</span>
                                     </div>
                                 </div>
                             </div>
-                            <div class="text-right flex items-center gap-2.5">
-                                <div>
-                                    <p class="font-extrabold text-slate-900 text-sm">${formatMoney(totalOriginal)} ${currency}</p>
-                                    <p class="text-[11px] text-slate-400">${formatMoney(totalRub)} ₽</p>
+                            <div class="flex items-center gap-2 shrink-0">
+                                <div class="text-right">
+                                    <p class="font-black text-slate-900 text-sm">${formatMoney(totalOriginal)} ${currency}</p>
+                                    <p class="text-[11px] font-semibold text-slate-400">${formatMoney(totalRub)} ₽</p>
                                 </div>
-                                <i class="fa-solid fa-chevron-down text-slate-400 text-xs transition-transform duration-200" id="icon-${index}"></i>
+                                <button onclick="event.stopPropagation(); openEditReceiptModal('${receipt.createdAt}', '${safeShop}', '${receipt.receiptDate}')" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 flex items-center justify-center transition" title="Изменить магазин или дату">
+                                    <i class="fa-solid fa-pen text-[11px]"></i>
+                                </button>
+                                <div class="w-6 flex justify-center">
+                                    <i class="fa-solid fa-chevron-down text-slate-400 text-xs transition-transform duration-200" id="icon-${index}"></i>
+                                </div>
                             </div>
                         </div>
 
-                        <div id="receipt-body-${index}" class="hidden mt-3 pt-3 border-t border-slate-100 space-y-2">
+                        <div id="receipt-body-${index}" class="hidden mt-3.5 pt-3 border-t border-slate-100 space-y-2">
                             ${receipt.items.map(item => `
-                                <div class="flex items-center justify-between bg-slate-50 p-3 rounded-2xl text-xs border border-slate-200/50">
-                                    <div class="flex-1 pr-2">
-                                        <p class="font-semibold text-slate-800">${item.name} <span class="text-[10px] text-slate-400 font-normal">(${item.originalName || item.name})</span></p>
-                                        <div class="flex items-center flex-wrap gap-2 mt-1.5">
-                                            <span class="font-bold text-slate-900">${formatMoney(item.originalPrice)} ${item.currency}</span>
-                                            <span class="text-[10px] text-slate-400">(${formatMoney(item.priceRub)} ₽)</span>
-                                            <select onchange="updateCategory('${item.id}', this.value)" class="text-[11px] font-medium bg-white border border-slate-200 rounded-lg px-2 py-0.5 text-slate-700 focus:outline-none">
+                                <div class="flex items-center justify-between bg-slate-50 p-3 rounded-2xl text-xs border border-slate-200/60">
+                                    <div class="flex-1 pr-2 min-w-0">
+                                        <p class="font-bold text-slate-800 break-words">${item.name} <span class="text-[11px] text-slate-400 font-normal">(${item.originalName || item.name})</span></p>
+                                        <div class="flex items-center flex-wrap gap-2 mt-2">
+                                            <span class="font-extrabold text-slate-900">${formatMoney(item.originalPrice)} ${item.currency}</span>
+                                            <span class="text-[11px] text-slate-400">(${formatMoney(item.priceRub)} ₽)</span>
+                                            <select onchange="updateCategory('${item.id}', this.value)" class="h-7 text-xs font-bold bg-white border border-slate-200 rounded-xl px-2.5 text-slate-700 focus:outline-none">
                                                 ${userCategories.map(cat => `<option value="${cat}" ${cat === item.category ? 'selected' : ''}>${cat}</option>`).join('')}
                                             </select>
                                         </div>
                                     </div>
-                                    <button onclick="deleteItem('${item.id}')" class="text-slate-300 hover:text-red-500 p-2"><i class="fa-solid fa-trash-can"></i></button>
+                                    <button onclick="deleteItem('${item.id}')" class="w-8 h-8 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center shrink-0 transition">
+                                        <i class="fa-solid fa-trash-can text-xs"></i>
+                                    </button>
                                 </div>
                             `).join('')}
                         </div>
@@ -1569,42 +1652,50 @@
             }
         };
 
-        window.updateReceiptShop = async function(inputEl, createdAt) {
-            const newShop = inputEl.value.trim() || "Не указано";
-            const targetItems = allItems.filter(item => item.createdAt === createdAt);
-            const batch = writeBatch(db);
-
-            for (let item of targetItems) {
-                batch.update(doc(db, `users/${currentUser.uid}/items`, item.id), { shop: newShop });
-                item.shop = newShop;
-            }
-            await batch.commit();
-            initFilters();
-            renderDashboard();
-            renderList();
+        // Модальное окно редактирования метаданных чека
+        window.openEditReceiptModal = function(createdAt, currentShop, currentDate) {
+            document.getElementById('edit-receipt-created-at').value = createdAt;
+            document.getElementById('edit-receipt-shop').value = currentShop;
+            document.getElementById('edit-receipt-date').value = currentDate;
+            document.getElementById('edit-receipt-modal').classList.remove('hidden');
         };
 
-        window.updateReceiptDate = async function(inputEl, createdAt) {
-            const newDate = inputEl.value;
+        window.closeEditReceiptModal = function() {
+            document.getElementById('edit-receipt-modal').classList.add('hidden');
+        };
+
+        window.saveReceiptMetadata = async function() {
+            const createdAt = document.getElementById('edit-receipt-created-at').value;
+            const newShop = document.getElementById('edit-receipt-shop').value.trim() || "Не указано";
+            const newDate = document.getElementById('edit-receipt-date').value;
             if (!newDate) return;
+
             const targetItems = allItems.filter(item => item.createdAt === createdAt);
-            const historicalRates = await getHistoricalRates(newDate);
+            const historicalRates = await getHistoricalRates();
             const batch = writeBatch(db);
 
             for (let item of targetItems) {
                 const currency = item.currency || 'RUB';
                 const rateToRub = historicalRates[currency] ? (1 / historicalRates[currency]) : 1;
                 const newPriceRub = (Number(item.originalPrice) || 0) * rateToRub;
+
                 batch.update(doc(db, `users/${currentUser.uid}/items`, item.id), {
+                    shop: newShop,
                     receiptDate: newDate,
                     priceRub: newPriceRub
                 });
+
+                item.shop = newShop;
                 item.receiptDate = newDate;
                 item.priceRub = newPriceRub;
             }
+
             await batch.commit();
+            closeEditReceiptModal();
+            initFilters();
             renderDashboard();
             renderList();
+            showToast('Данные чека обновлены');
         };
 
         window.updateCategory = async function(id, newCat) {
@@ -1612,6 +1703,7 @@
             const target = allItems.find(i => i.id === id);
             if (target) target.category = newCat;
             renderDashboard();
+            showToast('Категория изменена');
         };
 
         window.deleteItem = async function(id) {
@@ -1620,6 +1712,7 @@
             initFilters();
             renderDashboard();
             renderList();
+            showToast('Позиция удалена');
         };
     </script>
 </body>
