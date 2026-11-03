@@ -104,3 +104,26 @@ export function convertToRub(amount, currency, rates) {
 export function resetRatesCache() {
     memoryCache.clear();
 }
+
+// Последние известные курсы из кэша устройства — для приблизительной суммы без сети
+export function getCachedRates(storage = globalThis.localStorage) {
+    let best = null;
+    try {
+        for (let i = 0; i < storage.length; i++) {
+            const key = storage.key(i);
+            if (!key || !key.startsWith('rates:')) continue;
+            const value = JSON.parse(storage.getItem(key));
+            if (value?.rates && (!best || (value.date || '') > (best.date || ''))) best = value;
+        }
+    } catch {
+        return null;
+    }
+    return best;
+}
+
+// Сумма в рублях для траты, сохранённой без сети: по кэшу, если есть, иначе null (только в рублях — точно)
+export function approximateRub(amount, currency, cached) {
+    if (currency === 'RUB') return amount;
+    const rate = cached?.rates?.[currency];
+    return rate ? amount / rate : null;
+}
