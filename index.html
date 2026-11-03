@@ -40,16 +40,26 @@
         input[type="date"] {
             -webkit-appearance: none;
             appearance: none;
-            display: block;
+            display: flex;
+            align-items: center;
             width: 100%;
             min-width: 0;
             max-width: 100%;
+            height: 2.75rem;
             box-sizing: border-box;
-            text-align: left;
+            padding-top: 0;
+            padding-bottom: 0;
+            line-height: 2.75rem;
         }
         input[type="date"]::-webkit-date-and-time-value {
             text-align: left;
-            min-height: 1.2em;
+            margin: 0;
+            padding: 0;
+            line-height: inherit;
+            min-height: 0;
+        }
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            margin: 0;
         }
         .toast-animate {
             animation: slideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
