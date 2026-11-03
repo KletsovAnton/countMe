@@ -4,9 +4,11 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, on
 import { collection, getDocs, deleteDoc, doc, updateDoc, getDoc, setDoc, query, orderBy, writeBatch } from 'firebase/firestore';
 
 import { auth, db } from './firebase.js';
-import { getTodayDateStr, escapeHtml, formatMoney, formatDateReadable, buildReceiptDateRules } from './utils.js';
+import { getTodayDateStr, escapeHtml, formatMoney, formatDateReadable, buildReceiptDateRules, authErrorMessage, formatDuration, selectedKeys } from './utils.js';
 import { getLatestRates, getRatesForDate, convertToRub, SUPPORTED_CURRENCIES } from './rates.js';
-import { normalizeAiResult, receiptTotalInCurrency, isTotalMismatch, legacyReceiptKey, ADJUSTMENT_LABELS } from './receipts.js';
+import { normalizeAiResult, receiptTotalInCurrency, isTotalMismatch, legacyReceiptKey, ADJUSTMENT_LABELS, draftFromAi, draftFromReceipt, emptyDraft, buildItemsFromDraft } from './receipts.js';
+import { initEditor, openEditor } from './editor.js';
+import { getPref, setPref } from './prefs.js';
 import { getSchemaVersion, migrateToV2, SCHEMA_VERSION } from './migration.js';
 import { getCurrentModel, setAndSaveModelIndex, setOnModelChange, callGeminiWithModelFallback, extractJsonObject, getResponseText, GEMINI_MODELS } from './gemini.js';
 import { showToast } from './toast.js';
@@ -22,18 +24,28 @@ let userCategories = [];
 let pendingFile = null;
 let pendingFileDataUrl = null;
 
-let dashboardMode = 'category';
-let dashboardPeriod = 'month';
+let dashboardMode = getPref('dashboardMode', 'category');
+let dashboardPeriod = getPref('dashboardPeriod', 'month');
+// Снятые пользователем фильтры, отдельно для категорий и магазинов
+let deselectedFilterKeys = {
+    category: new Set(getPref('deselectedCategories', [])),
+    shop: new Set(getPref('deselectedShops', [])),
+};
 let selectedFilterKeys = new Set();
 
-let historyPeriod = 'all';
-let historySort = 'receiptDate';
+let historyPeriod = getPref('historyPeriod', 'all');
+let historySort = getPref('historySort', 'receiptDate');
 
 let lastAiJob = null;
+let aiBusy = false;
 
 let mediaRecorder = null;
 let audioChunks = [];
 let isRecordingVoiceExpense = false;
+let recordingTimer = null;
+const MAX_RECORDING_SECONDS = 120;
+
+let authMode = 'login';
 
 const CHART_COLORS = ['#4f46e5', '#db2777', '#059669', '#d97706', '#7c3aed', '#0891b2', '#e11d48', '#2563eb', '#65a30d', '#475569'];
 
@@ -89,21 +101,38 @@ window.switchSection = function(sectionName) {
 };
 
 // ==================== АВТОРИЗАЦИЯ И НАСТРОЙКИ ====================
+window.setAuthMode = function(mode) {
+    authMode = mode;
+    const active = "flex-1 h-9 text-xs font-bold rounded-xl bg-white text-slate-900 shadow-sm transition";
+    const inactive = "flex-1 h-9 text-xs font-semibold rounded-xl text-slate-500 transition";
+    document.getElementById('auth-tab-login').className = mode === 'login' ? active : inactive;
+    document.getElementById('auth-tab-register').className = mode === 'register' ? active : inactive;
+    document.getElementById('auth-submit-btn').innerText = mode === 'login' ? 'Войти' : 'Зарегистрироваться';
+    document.getElementById('auth-password').autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+    document.getElementById('auth-password-hint').classList.toggle('hidden', mode === 'login');
+    document.getElementById('auth-error').classList.add('hidden');
+};
+
 window.handleAuth = async function() {
     const email = document.getElementById('auth-email').value.trim();
     const password = document.getElementById('auth-password').value;
     const errBox = document.getElementById('auth-error');
+    const submitBtn = document.getElementById('auth-submit-btn');
     errBox.classList.add('hidden');
 
+    // Вход и регистрация разделены: опечатка в email больше не создаёт новый пустой аккаунт
+    submitBtn.disabled = true;
     try {
-        await signInWithEmailAndPassword(auth, email, password);
-    } catch (e) {
-        try {
+        if (authMode === 'login') {
+            await signInWithEmailAndPassword(auth, email, password);
+        } else {
             await createUserWithEmailAndPassword(auth, email, password);
-        } catch (err) {
-            errBox.innerText = err.message;
-            errBox.classList.remove('hidden');
         }
+    } catch (err) {
+        errBox.innerText = authErrorMessage(err);
+        errBox.classList.remove('hidden');
+    } finally {
+        submitBtn.disabled = false;
     }
 };
 
@@ -132,7 +161,7 @@ onAuthStateChanged(auth, async (user) => {
                 document.getElementById('apikey-screen').classList.remove('hidden');
             }
         } catch (err) {
-            alert("Ошибка загрузки профиля: " + err.message);
+            showToast(`Ошибка загрузки профиля: ${err.message}`, 'error');
             document.getElementById('auth-screen').classList.remove('hidden');
         }
     } else {
@@ -145,7 +174,7 @@ onAuthStateChanged(auth, async (user) => {
 
 window.saveUserApiKey = async function() {
     const keyInput = document.getElementById('user-gemini-key').value.trim();
-    if (!keyInput) { alert('Введите ключ!'); return; }
+    if (!keyInput) { showToast('Введите ключ', 'warning'); return; }
 
     const saved = await runWrite(
         () => setDoc(doc(db, `users/${currentUser.uid}`), { geminiApiKey: keyInput }, { merge: true }),
@@ -220,8 +249,22 @@ window.retryAiJob = async function() {
     await executeAiJob(lastAiJob);
 };
 
+// Одновременно идёт только один запрос к ИИ — иначе ответы перепутаются в общей панели
+function ensureCanStartAi() {
+    if (aiBusy) {
+        showToast('Дождитесь, пока ИИ закончит текущий запрос', 'warning');
+        return false;
+    }
+    if (userCategories.length === 0) {
+        showToast('Сначала добавьте хотя бы одну категорию трат в разделе «Категории»', 'warning');
+        return false;
+    }
+    return true;
+}
+
 async function executeAiJob(job) {
     lastAiJob = job;
+    aiBusy = true;
     showAiJobPanel(job);
 
     try {
@@ -236,78 +279,180 @@ async function executeAiJob(job) {
         const rawText = getResponseText(data);
         const parsedData = extractJsonObject(rawText);
 
-        const todayStr = getTodayDateStr();
         const defaultShop = job.type === 'voice' ? "Голосовой ввод" : (job.type === 'text' ? "Текстовый ввод" : "Не указано");
-        const { receipt, items } = normalizeAiResult(parsedData, {
+        const normalized = normalizeAiResult(parsedData, {
             source: job.type,
             categories: userCategories,
             fallbackCurrency: job.selectedCurrency,
-            todayStr,
+            todayStr: getTodayDateStr(),
             defaultShop,
         });
 
-        if (items.length === 0) {
+        if (normalized.items.length === 0) {
             throw new Error('ИИ не обнаружил ни одной финансовой позиции в запросе.');
         }
 
-        // Курс на дату чека; без него ничего не сохраняем — иначе суммы в рублях будут неверными
-        const { date: rateDate, rates } = await getRatesForDate(receipt.receiptDate, todayStr);
-        const createdAt = new Date().toISOString();
-
-        const batch = writeBatch(db);
-        const receiptRef = doc(collection(db, `users/${currentUser.uid}/receipts`));
-        const receiptObj = { ...receipt, createdAt };
-        batch.set(receiptRef, receiptObj);
-
-        const itemsColRef = collection(db, `users/${currentUser.uid}/items`);
-        const newlyAddedItems = [];
-
-        for (const item of items) {
-            const newDocRef = doc(itemsColRef);
-            const itemObj = {
-                ...item,
-                receiptId: receiptRef.id,
-                priceRub: convertToRub(item.originalPrice, item.currency, rates),
-                rate: rates[item.currency],
-                rateDate,
-                shop: receipt.shop,
-                receiptDate: receipt.receiptDate,
-                createdAt
-            };
-
-            batch.set(newDocRef, itemObj);
-            newlyAddedItems.push({ id: newDocRef.id, ...itemObj });
-        }
-
-        await batch.commit();
-
-        allReceipts.set(receiptRef.id, { id: receiptRef.id, ...receiptObj });
-        allItems = [...newlyAddedItems, ...allItems];
-        initFilters();
-        renderDashboard();
-        renderList();
-
+        // Ничего не сохраняем сразу: пользователь проверяет результат в редакторе
         closeAiJobPanel();
-        const mismatch = isTotalMismatch(receiptTotalInCurrency(newlyAddedItems)?.amount, receipt.total);
-        showToast(`Добавлено позиций: ${newlyAddedItems.length} (${receipt.shop})`);
-        if (mismatch) {
-            showToast(`Сумма позиций не совпадает с итогом чека (${formatMoney(receipt.total)} ${receipt.currency}). Проверьте чек в истории.`, 'warning');
-        }
+        openEditor(draftFromAi(normalized, job.imagePreviewUrl || null), userCategories);
     } catch (err) {
         showAiJobError(err.message || 'Сбой соединения или перегрузка сервера ИИ.');
+    } finally {
+        aiBusy = false;
     }
 }
+
+window.openManualEntry = function() {
+    if (userCategories.length === 0) {
+        showToast('Сначала добавьте хотя бы одну категорию трат в разделе «Категории»', 'warning');
+        return;
+    }
+    openEditor(emptyDraft({
+        currency: document.getElementById('receipt-currency').value,
+        category: userCategories[0],
+        todayStr: getTodayDateStr(),
+    }), userCategories);
+};
+
+function refreshAll() {
+    refreshFilters();
+    renderDashboard();
+    renderList();
+    renderCategories();
+}
+
+const DEFAULT_SHOPS = { voice: 'Голосовой ввод', text: 'Текстовый ввод', manual: 'Ручной ввод' };
+
+// Сохранение черновика из редактора: новый чек или правка существующего
+async function saveDraft(draft) {
+    let built;
+    try {
+        built = buildItemsFromDraft(draft, userCategories);
+    } catch (err) {
+        showToast(err.message, 'warning');
+        return false;
+    }
+
+    let rateInfo;
+    try {
+        rateInfo = await getRatesForDate(draft.receiptDate, getTodayDateStr());
+    } catch (err) {
+        showToast(err.message, 'error');
+        return false;
+    }
+
+    const { items, adjustments, singleCurrency } = built;
+    const itemsTotal = Math.round(items.reduce((s, i) => s + i.originalPrice, 0) * 100) / 100;
+    const statedTotal = Number(draft.total);
+    const receiptFields = {
+        shop: String(draft.shop || '').trim() || DEFAULT_SHOPS[draft.source] || 'Не указано',
+        receiptDate: draft.receiptDate,
+        currency: singleCurrency,
+        total: singleCurrency ? (statedTotal > 0 ? statedTotal : itemsTotal) : null,
+    };
+
+    const uid = currentUser.uid;
+    const batch = writeBatch(db);
+    const existingItems = draft.mode === 'edit' ? getReceiptItems(draft.key) : [];
+    const storedReceipt = draft.receiptId ? allReceipts.get(draft.receiptId) : null;
+    const receiptRef = draft.receiptId
+        ? doc(db, `users/${uid}/receipts`, draft.receiptId)
+        : doc(collection(db, `users/${uid}/receipts`));
+    const createdAt = storedReceipt?.createdAt || existingItems[0]?.createdAt || new Date().toISOString();
+
+    const receiptObj = draft.mode === 'new'
+        ? { ...receiptFields, subtotal: singleCurrency ? Math.round(items.reduce((s, i) => s + i.basePrice, 0) * 100) / 100 : null, adjustments, source: draft.source, createdAt }
+        : { ...(storedReceipt || { adjustments: [], subtotal: null, source: 'legacy' }), ...receiptFields, createdAt };
+    delete receiptObj.id;
+    batch.set(receiptRef, receiptObj);
+
+    const savedItems = [];
+    try {
+        for (const item of items) {
+            const { id, ...fields } = item;
+            const itemObj = {
+                ...fields,
+                receiptId: receiptRef.id,
+                priceRub: convertToRub(item.originalPrice, item.currency, rateInfo.rates),
+                rate: rateInfo.rates[item.currency],
+                rateDate: rateInfo.date,
+                shop: receiptFields.shop,
+                receiptDate: receiptFields.receiptDate,
+                createdAt,
+            };
+            const ref = id ? doc(db, `users/${uid}/items`, id) : doc(collection(db, `users/${uid}/items`));
+            if (id) batch.update(ref, itemObj);
+            else batch.set(ref, itemObj);
+            savedItems.push({ ...(existingItems.find(e => e.id === id) || {}), ...itemObj, id: ref.id });
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+        return false;
+    }
+
+    const keptIds = new Set(savedItems.map(i => i.id));
+    const removedItems = existingItems.filter(i => !keptIds.has(i.id));
+    removedItems.forEach(i => batch.delete(doc(db, `users/${uid}/items`, i.id)));
+
+    if (!await runWrite(() => batch.commit(), 'Не удалось сохранить чек')) return false;
+
+    const replacedIds = new Set(existingItems.map(i => i.id));
+    allItems = [...savedItems, ...allItems.filter(i => !replacedIds.has(i.id))];
+    allReceipts.set(receiptRef.id, { id: receiptRef.id, ...receiptObj });
+    refreshAll();
+    showToast(draft.mode === 'new'
+        ? `Сохранено позиций: ${savedItems.length} (${receiptFields.shop})`
+        : 'Чек обновлён');
+    return true;
+}
+
+// Восстановление удалённых позиций и чека по кнопке «Отменить»
+async function restoreDeleted(items, receipt) {
+    const uid = currentUser.uid;
+    const batch = writeBatch(db);
+    items.forEach(({ id, ...data }) => batch.set(doc(db, `users/${uid}/items`, id), data));
+    if (receipt) {
+        const { id, ...data } = receipt;
+        batch.set(doc(db, `users/${uid}/receipts`, id), data);
+    }
+    if (!await runWrite(() => batch.commit(), 'Не удалось восстановить')) return;
+
+    const ids = new Set(items.map(i => i.id));
+    allItems = [...items, ...allItems.filter(i => !ids.has(i.id))];
+    if (receipt) allReceipts.set(receipt.id, receipt);
+    refreshAll();
+    showToast('Восстановлено');
+}
+
+async function deleteReceiptDraft(draft) {
+    const uid = currentUser.uid;
+    const items = getReceiptItems(draft.key);
+    const receipt = draft.receiptId ? allReceipts.get(draft.receiptId) : null;
+
+    const batch = writeBatch(db);
+    items.forEach(i => batch.delete(doc(db, `users/${uid}/items`, i.id)));
+    if (receipt) batch.delete(doc(db, `users/${uid}/receipts`, receipt.id));
+    if (!await runWrite(() => batch.commit(), 'Не удалось удалить чек')) return false;
+
+    const ids = new Set(items.map(i => i.id));
+    allItems = allItems.filter(i => !ids.has(i.id));
+    if (receipt) allReceipts.delete(receipt.id);
+    refreshAll();
+    showToast(`Чек «${draft.shop || 'без названия'}» удалён`, 'info', {
+        actionLabel: 'Отменить',
+        onAction: () => restoreDeleted(items, receipt),
+    });
+    return true;
+}
+
+initEditor({ onSave: saveDraft, onDelete: deleteReceiptDraft });
 
 // ==================== ТЕКСТОВЫЙ ВВОД ====================
 window.submitTextExpense = async function() {
     const inputEl = document.getElementById('text-expense-input');
     const userText = inputEl.value.trim();
     if (!userText) return;
-
-    if (userCategories.length === 0) {
-        alert('Сначала добавьте хотя бы одну категорию трат в разделе «Категории»!');
-        return;
-    }
+    if (!ensureCanStartAi()) return;
 
     const defaultCurrency = document.getElementById('receipt-currency').value;
     const todayStr = getTodayDateStr();
@@ -387,21 +532,30 @@ window.toggleVoiceExpenseRecording = async function() {
     const iconEl = document.getElementById('voice-expense-icon');
 
     if (!isRecordingVoiceExpense) {
-        if (userCategories.length === 0) {
-            alert('Сначала добавьте хотя бы одну категорию трат!');
-            return;
-        }
+        if (!ensureCanStartAi()) return;
         try {
             await startAudioRecording();
             isRecordingVoiceExpense = true;
             btn.className = "w-[118px] h-11 bg-red-600 hover:bg-red-700 text-white rounded-2xl text-xs font-bold transition flex items-center justify-center gap-1.5 animate-pulse shrink-0 shadow-sm";
             iconEl.className = "fa-solid fa-stop";
-            textSpan.innerText = 'Стоп';
+            // Таймер на кнопке; запись останавливается сама через MAX_RECORDING_SECONDS
+            const startedAt = Date.now();
+            textSpan.innerText = `Стоп ${formatDuration(0)}`;
+            recordingTimer = setInterval(() => {
+                const elapsed = (Date.now() - startedAt) / 1000;
+                textSpan.innerText = `Стоп ${formatDuration(elapsed)}`;
+                if (elapsed >= MAX_RECORDING_SECONDS) {
+                    showToast(`Запись ограничена ${formatDuration(MAX_RECORDING_SECONDS)} — отправляем то, что записано`, 'warning');
+                    window.toggleVoiceExpenseRecording();
+                }
+            }, 250);
         } catch (err) {
-            alert('Не удалось получить доступ к микрофону: ' + err.message);
+            showToast(`Не удалось получить доступ к микрофону: ${err.message}`, 'error');
         }
     } else {
         isRecordingVoiceExpense = false;
+        clearInterval(recordingTimer);
+        recordingTimer = null;
         btn.className = "w-[118px] h-11 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white rounded-2xl text-xs font-bold transition flex items-center justify-center gap-1.5 shrink-0 shadow-sm shadow-indigo-600/15";
         iconEl.className = "fa-solid fa-microphone";
         textSpan.innerText = 'Записать';
@@ -446,6 +600,13 @@ window.toggleVoiceExpenseRecording = async function() {
     }
 };
 
+// Приложение свернули во время записи (на iPhone микрофон при этом отключается) — отправляем записанное
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden && isRecordingVoiceExpense) {
+        window.toggleVoiceExpenseRecording();
+    }
+});
+
 // ==================== СКАНИРОВАНИЕ ЧЕКА ====================
 function compressAndConvertToBase64(file, maxDimension = 1200, quality = 0.75) {
     return new Promise((resolve, reject) => {
@@ -488,8 +649,7 @@ window.handleFileSelected = function(event) {
     const file = event.target.files[0];
     if (!file) return;
 
-    if (userCategories.length === 0) {
-        alert('Сначала добавьте хотя бы одну категорию трат в разделе «Категории»!');
+    if (!ensureCanStartAi()) {
         event.target.value = '';
         return;
     }
@@ -608,7 +768,7 @@ window.addCategory = async function() {
     userCategories = nextList;
     input.value = '';
     renderCategories();
-    initFilters();
+    refreshFilters();
     renderList();
     showToast(`Категория «${catName}» добавлена`);
 };
@@ -635,7 +795,7 @@ async function moveItemsAndSaveCategories(fromCats, toCat, nextList, errorText) 
     affected.forEach(item => { item.category = toCat; });
     userCategories = nextList;
     renderCategories();
-    initFilters();
+    refreshFilters();
     renderDashboard();
     renderList();
     return affected.length;
@@ -738,6 +898,8 @@ function renderCategories() {
 
 // ==================== ЗАГРУЗКА ДАННЫХ ====================
 async function loadData() {
+    const overlay = document.getElementById('loading-overlay');
+    overlay.classList.remove('hidden');
     try {
         const catDoc = await getDoc(doc(db, `users/${currentUser.uid}/settings`, 'categories'));
         if (catDoc.exists() && catDoc.data().list) {
@@ -760,10 +922,8 @@ async function loadData() {
 
     await runMigrationIfNeeded();
 
-    renderCategories();
-    initFilters();
-    renderDashboard();
-    renderList();
+    overlay.classList.add('hidden');
+    refreshAll();
 }
 
 // Однократный перевод старых записей на схему с отдельными чеками (с резервной копией)
@@ -789,6 +949,7 @@ async function runMigrationIfNeeded() {
 // ==================== ДАШБОРД И ФИЛЬТРЫ ====================
 window.setDashboardPeriod = function(period) {
     dashboardPeriod = period;
+    setPref('dashboardPeriod', period);
     document.querySelectorAll('.dash-period-btn').forEach(btn => {
         if (btn.dataset.period === period) {
             btn.className = "dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-bold bg-indigo-600 text-white transition";
@@ -801,6 +962,7 @@ window.setDashboardPeriod = function(period) {
 
 window.setDashboardMode = function(mode) {
     dashboardMode = mode;
+    setPref('dashboardMode', mode);
     const btnCat = document.getElementById('tab-mode-category');
     const btnShop = document.getElementById('tab-mode-shop');
 
@@ -811,7 +973,7 @@ window.setDashboardMode = function(mode) {
         btnShop.className = "flex-1 h-7 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition";
         btnCat.className = "flex-1 h-7 text-xs font-semibold rounded-lg text-slate-500 transition";
     }
-    initFilters();
+    refreshFilters();
     renderDashboard();
 };
 
@@ -826,10 +988,15 @@ function getAvailableFilterKeys() {
     }
 }
 
-function initFilters() {
-    const keys = getAvailableFilterKeys();
-    selectedFilterKeys = new Set(keys);
+// Пересчитывает выбранные фильтры, сохраняя то, что пользователь снял вручную
+function refreshFilters() {
+    selectedFilterKeys = selectedKeys(getAvailableFilterKeys(), deselectedFilterKeys[dashboardMode]);
     renderFilterChips();
+}
+
+function saveDeselectedFilters() {
+    setPref('deselectedCategories', [...deselectedFilterKeys.category]);
+    setPref('deselectedShops', [...deselectedFilterKeys.shop]);
 }
 
 function renderFilterChips() {
@@ -847,19 +1014,18 @@ function renderFilterChips() {
 }
 
 function toggleFilterChip(key) {
-    if (selectedFilterKeys.has(key)) {
-        selectedFilterKeys.delete(key);
-    } else {
-        selectedFilterKeys.add(key);
-    }
-    renderFilterChips();
+    const deselected = deselectedFilterKeys[dashboardMode];
+    if (deselected.has(key)) deselected.delete(key);
+    else deselected.add(key);
+    saveDeselectedFilters();
+    refreshFilters();
     renderDashboard();
 }
 
 window.toggleAllFilters = function(selectAll) {
-    const keys = getAvailableFilterKeys();
-    selectedFilterKeys = selectAll ? new Set(keys) : new Set();
-    renderFilterChips();
+    deselectedFilterKeys[dashboardMode] = selectAll ? new Set() : new Set(getAvailableFilterKeys());
+    saveDeselectedFilters();
+    refreshFilters();
     renderDashboard();
 };
 
@@ -1079,6 +1245,7 @@ window.renderDashboard = async function() {
 // ==================== ИСТОРИЯ ЧЕКОВ И МОДАЛЬНОЕ РЕДАКТИРОВАНИЕ ====================
 window.setHistoryPeriod = function(period) {
     historyPeriod = period;
+    setPref('historyPeriod', period);
     document.querySelectorAll('.hist-period-btn').forEach(btn => {
         if (btn.dataset.hperiod === period) {
             btn.className = "hist-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-bold bg-indigo-600 text-white transition";
@@ -1091,6 +1258,7 @@ window.setHistoryPeriod = function(period) {
 
 window.setHistorySort = function(sortMode) {
     historySort = sortMode;
+    setPref('historySort', sortMode);
     const btnReceipt = document.getElementById('sort-by-receipt-date');
     const btnCreated = document.getElementById('sort-by-created-at');
 
@@ -1159,6 +1327,13 @@ function renderList() {
     const filteredItems = filterItemsByPeriodGeneric(allItems, historyPeriod);
     let receipts = groupItemsIntoReceipts(filteredItems);
 
+    // Номер чека — порядковый по времени добавления среди всех чеков, а не позиция в отфильтрованном списке
+    const receiptNumbers = new Map(
+        groupItemsIntoReceipts(allItems)
+            .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '') || a.key.localeCompare(b.key))
+            .map((r, idx) => [r.key, idx + 1])
+    );
+
     receipts.sort((a, b) => {
         if (historySort === 'receiptDate') {
             const cmp = (b.receiptDate || '').localeCompare(a.receiptDate || '');
@@ -1177,7 +1352,7 @@ function renderList() {
     }
 
     listEl.innerHTML = receipts.map((receipt, index) => {
-        const receiptNum = receipts.length - index;
+        const receiptNum = receiptNumbers.get(receipt.key);
         const totalRub = receipt.items.reduce((s, i) => s + (Number(i.priceRub) || 0), 0);
         const totalOriginal = receiptTotalInCurrency(receipt.items);
         const mismatch = totalOriginal && receipt.stored?.currency === totalOriginal.currency
@@ -1208,7 +1383,7 @@ function renderList() {
                             <p class="font-black text-slate-900 text-sm">${mainAmount}</p>
                             <p class="text-[11px] font-semibold text-slate-400">${subAmount}</p>
                         </div>
-                        <button data-action="edit-receipt" data-key="${escapeHtml(receipt.key)}" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 flex items-center justify-center transition" title="Изменить магазин или дату">
+                        <button data-action="edit-receipt" data-key="${escapeHtml(receipt.key)}" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 flex items-center justify-center transition" title="Редактировать чек">
                             <i class="fa-solid fa-pen text-[11px]"></i>
                         </button>
                         <div class="w-6 flex justify-center">
@@ -1265,79 +1440,13 @@ function getReceiptItems(key) {
     return allItems.filter(item => (item.receiptId || `legacy:${legacyReceiptKey(item)}`) === key);
 }
 
-// Модальное окно редактирования метаданных чека
-function openEditReceiptModal(key) {
+// Карандаш в истории открывает тот же редактор, что и проверка ответа ИИ
+function openReceiptEditor(key) {
     const receiptItems = getReceiptItems(key);
     if (receiptItems.length === 0) return;
     const [receipt] = groupItemsIntoReceipts(receiptItems);
-    document.getElementById('edit-receipt-key').value = key;
-    document.getElementById('edit-receipt-shop').value = receipt.shop;
-    document.getElementById('edit-receipt-date').value = receipt.receiptDate;
-    document.getElementById('edit-receipt-modal').classList.remove('hidden');
+    openEditor(draftFromReceipt(receipt), userCategories);
 }
-
-window.closeEditReceiptModal = function() {
-    document.getElementById('edit-receipt-modal').classList.add('hidden');
-};
-
-window.saveReceiptMetadata = async function() {
-    const key = document.getElementById('edit-receipt-key').value;
-    const newShop = document.getElementById('edit-receipt-shop').value.trim() || "Не указано";
-    const newDate = document.getElementById('edit-receipt-date').value;
-    if (!newDate) return;
-
-    const targetItems = getReceiptItems(key);
-    if (targetItems.length === 0) return;
-    const receiptId = targetItems[0].receiptId;
-    const dateChanged = targetItems[0].receiptDate !== newDate;
-
-    // Правка магазина не трогает суммы; при исправлении даты берётся курс на новую дату чека
-    let rateInfo = null;
-    if (dateChanged) {
-        try {
-            rateInfo = await getRatesForDate(newDate, getTodayDateStr());
-        } catch (err) {
-            showToast(err.message, 'error');
-            return;
-        }
-    }
-
-    const itemUpdates = new Map();
-    try {
-        for (const item of targetItems) {
-            const fields = { shop: newShop, receiptDate: newDate };
-            if (rateInfo) {
-                fields.priceRub = convertToRub(Number(item.originalPrice) || 0, item.currency, rateInfo.rates);
-                fields.rate = rateInfo.rates[item.currency];
-                fields.rateDate = rateInfo.date;
-            }
-            itemUpdates.set(item, fields);
-        }
-    } catch (err) {
-        showToast(err.message, 'error');
-        return;
-    }
-
-    const batch = writeBatch(db);
-    for (const [item, fields] of itemUpdates) {
-        batch.update(doc(db, `users/${currentUser.uid}/items`, item.id), fields);
-    }
-    if (receiptId && allReceipts.has(receiptId)) {
-        batch.update(doc(db, `users/${currentUser.uid}/receipts`, receiptId), { shop: newShop, receiptDate: newDate });
-    }
-
-    if (!await runWrite(() => batch.commit(), 'Не удалось обновить чек')) return;
-
-    for (const [item, fields] of itemUpdates) Object.assign(item, fields);
-    if (receiptId && allReceipts.has(receiptId)) {
-        Object.assign(allReceipts.get(receiptId), { shop: newShop, receiptDate: newDate });
-    }
-    closeEditReceiptModal();
-    initFilters();
-    renderDashboard();
-    renderList();
-    showToast(dateChanged ? 'Чек обновлён, суммы пересчитаны по курсу на новую дату' : 'Данные чека обновлены');
-};
 
 async function updateCategory(id, newCat, selectEl) {
     const target = allItems.find(i => i.id === id);
@@ -1360,21 +1469,20 @@ async function deleteItem(id) {
     if (!item) return;
     // Последняя позиция чека — удаляем и сам чек, чтобы не оставались пустые записи
     const isLastInReceipt = item.receiptId && allItems.filter(i => i.receiptId === item.receiptId).length === 1;
+    const receipt = isLastInReceipt ? allReceipts.get(item.receiptId) : null;
 
     const batch = writeBatch(db);
     batch.delete(doc(db, `users/${currentUser.uid}/items`, id));
-    if (isLastInReceipt && allReceipts.has(item.receiptId)) {
-        batch.delete(doc(db, `users/${currentUser.uid}/receipts`, item.receiptId));
-    }
+    if (receipt) batch.delete(doc(db, `users/${currentUser.uid}/receipts`, receipt.id));
     if (!await runWrite(() => batch.commit(), 'Не удалось удалить позицию')) return;
 
     allItems = allItems.filter(i => i.id !== id);
-    if (isLastInReceipt) allReceipts.delete(item.receiptId);
-    initFilters();
-    renderDashboard();
-    renderList();
-    renderCategories();
-    showToast('Позиция удалена');
+    if (receipt) allReceipts.delete(receipt.id);
+    refreshAll();
+    showToast(`«${item.name}» удалена`, 'info', {
+        actionLabel: 'Отменить',
+        onAction: () => restoreDeleted([item], receipt),
+    });
 }
 
 // ==================== ДЕЛЕГИРОВАНИЕ СОБЫТИЙ ДЛЯ ДИНАМИЧЕСКИХ СПИСКОВ ====================
@@ -1391,7 +1499,7 @@ document.addEventListener('click', (e) => {
     } else if (action === 'toggle-receipt') {
         toggleReceipt(el.dataset.index);
     } else if (action === 'edit-receipt') {
-        openEditReceiptModal(el.dataset.key);
+        openReceiptEditor(el.dataset.key);
     } else if (action === 'delete-item') {
         deleteItem(el.dataset.id);
     }
@@ -1401,3 +1509,19 @@ document.addEventListener('change', (e) => {
     const el = e.target.closest('[data-action="update-category"]');
     if (el) updateCategory(el.dataset.id, el.value, el);
 });
+
+// ==================== ВОССТАНОВЛЕНИЕ НАСТРОЕК ИНТЕРФЕЙСА ====================
+function applySavedPrefs() {
+    [['receipt-currency', 'inputCurrency'], ['dashboard-currency', 'dashboardCurrency'], ['chart-type', 'chartType']].forEach(([id, key]) => {
+        const select = document.getElementById(id);
+        const saved = getPref(key, null);
+        if (saved && [...select.options].some(o => o.value === saved)) select.value = saved;
+        select.addEventListener('change', () => setPref(key, select.value));
+    });
+    setDashboardPeriod(dashboardPeriod);
+    setDashboardMode(dashboardMode);
+    setHistoryPeriod(historyPeriod);
+    setHistorySort(historySort);
+}
+
+applySavedPrefs();

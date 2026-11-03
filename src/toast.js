@@ -6,7 +6,8 @@ const TOAST_STYLES = {
     error: { bg: 'bg-red-600 text-white', icon: 'fa-circle-exclamation text-white' },
 };
 
-export function showToast(message, type = 'info') {
+// options: { actionLabel, onAction, duration } — кнопка действия, например «Отменить»
+export function showToast(message, type = 'info', options = {}) {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     const style = TOAST_STYLES[type] || TOAST_STYLES.info;
@@ -20,6 +21,17 @@ export function showToast(message, type = 'info') {
     text.className = 'flex-1 leading-snug';
     text.textContent = message;
     toast.append(icon, text);
+    if (options.actionLabel && options.onAction) {
+        const actionBtn = document.createElement('button');
+        actionBtn.className = 'shrink-0 px-3 h-7 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-extrabold';
+        actionBtn.textContent = options.actionLabel;
+        actionBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+        actionBtn.addEventListener('click', () => {
+            options.onAction();
+            dismiss();
+        });
+        toast.append(actionBtn);
+    }
     container.appendChild(toast);
 
     let hideTimer = null;
@@ -32,7 +44,8 @@ export function showToast(message, type = 'info') {
         toast.style.opacity = '0';
         setTimeout(() => toast.remove(), 220);
     };
-    const startTimer = () => { hideTimer = setTimeout(dismiss, type === 'error' ? 6000 : 3500); };
+    const duration = options.duration || (type === 'error' || options.actionLabel ? 6000 : 3500);
+    const startTimer = () => { hideTimer = setTimeout(dismiss, duration); };
 
     toast.addEventListener('pointerdown', (e) => {
         clearTimeout(hideTimer);
