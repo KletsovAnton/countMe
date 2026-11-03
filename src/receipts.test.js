@@ -111,3 +111,71 @@ describe('legacy migration ids', () => {
         expect(legacyReceiptId(a)).toMatch(/^legacy_[a-z0-9]+_\d+$/);
     });
 });
+
+import { draftFromAi, draftFromReceipt, emptyDraft, summarizeDraft, buildItemsFromDraft } from './receipts.js';
+import { authErrorMessage, selectedKeys, formatDuration } from './utils.js';
+
+const cats = ['Еда', 'Кафе'];
+
+describe('receipt drafts', () => {
+    it('AI draft shows prices before adjustments and allocates them on save', () => {
+        const normalized = normalizeAiResult({
+            items: [{ name: 'Пад-тай', price: 120, category: 'Кафе' }, { name: 'Кола', price: 30, category: 'Кафе' }],
+            adjustments: [{ type: 'service', name: 'SC', amount: 15 }],
+            total: 165,
+        }, opts);
+        const draft = draftFromAi(normalized, 'data:image/jpeg;base64,x');
+        expect(draft.items.map(i => i.price)).toEqual([120, 30]);
+        expect(summarizeDraft(draft)).toMatchObject({ itemsTotal: 165, mismatch: false });
+
+        const { items } = buildItemsFromDraft(draft, cats);
+        expect(items.map(i => i.originalPrice)).toEqual([132, 33]);
+        expect(items[0].basePrice).toBe(120);
+    });
+
+    it('flags a mismatch when the user deletes a line', () => {
+        const draft = draftFromAi(normalizeAiResult({ items: [{ name: 'A', price: 50 }, { name: 'B', price: 50 }], total: 100 }, opts));
+        draft.items.splice(1, 1);
+        expect(summarizeDraft(draft).mismatch).toBe(true);
+    });
+
+    it('manual drafts validate names and prices', () => {
+        const draft = emptyDraft({ currency: 'THB', category: 'Еда', todayStr: '2026-11-04' });
+        expect(() => buildItemsFromDraft(draft, cats)).toThrow('Добавьте хотя бы одну позицию');
+        draft.items[0].name = 'Кофе';
+        expect(() => buildItemsFromDraft(draft, cats)).toThrow('укажите цену');
+        draft.items[0].price = 80;
+        expect(buildItemsFromDraft(draft, cats).items[0]).toMatchObject({ name: 'Кофе', originalPrice: 80, currency: 'THB', basePrice: 80 });
+    });
+
+    it('editing keeps item ids, final prices and deleted categories', () => {
+        const draft = draftFromReceipt({
+            key: 'r1', receiptId: 'r1', shop: 'Cafe', receiptDate: '2026-10-01',
+            stored: { currency: 'THB', total: 165, source: 'receipt' },
+            items: [
+                { id: 'a', name: 'Пад-тай', originalPrice: 132, currency: 'THB', category: 'Старая' },
+                { id: 'b', name: 'Кола', originalPrice: 33, currency: 'THB', category: 'Кафе' },
+            ],
+        });
+        draft.items[1].price = 40;
+        const { items } = buildItemsFromDraft(draft, cats);
+        expect(items[0]).toMatchObject({ id: 'a', originalPrice: 132, category: 'Старая' });
+        expect(items[0].basePrice).toBeUndefined();
+        expect(items[1]).toMatchObject({ id: 'b', originalPrice: 40, basePrice: 40 });
+    });
+});
+
+describe('ui helpers', () => {
+    it('maps Firebase auth errors to clear messages', () => {
+        expect(authErrorMessage({ code: 'auth/invalid-credential' })).toBe('Неверный email или пароль');
+        expect(authErrorMessage({ code: 'auth/email-already-in-use' })).toContain('уже зарегистрирован');
+        expect(authErrorMessage({ code: 'auth/other', message: 'boom' })).toContain('boom');
+    });
+    it('keeps user-deselected filters while new keys appear selected', () => {
+        expect([...selectedKeys(['Еда', 'Кафе', 'Новая'], new Set(['Кафе']))]).toEqual(['Еда', 'Новая']);
+    });
+    it('formats recording time', () => {
+        expect(formatDuration(0)).toBe('0:00');
+        expect(formatDuration(75.6)).toBe('1:15');
+    });
+});

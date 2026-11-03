@@ -122,3 +122,119 @@ export function legacyReceiptId(key) {
     }
     return `legacy_${hash.toString(36)}_${key.length}`;
 }
+
+// ==================== ЧЕРНОВИК ЧЕКА ДЛЯ РЕДАКТОРА ====================
+// Один редактор для трёх случаев: проверка ответа ИИ, ручной ввод и правка сохранённого чека.
+// В новом чеке price — цена без общих сборов (сборы распределяются при сохранении);
+// в сохранённом — итоговая цена позиции, сборы уже внутри.
+
+export function draftFromAi({ receipt, items }, previewUrl = null) {
+    return {
+        mode: 'new',
+        source: receipt.source,
+        receiptId: null,
+        shop: receipt.shop,
+        receiptDate: receipt.receiptDate,
+        currency: receipt.currency || items[0]?.currency,
+        items: items.map(i => ({ name: i.name, originalName: i.originalName, price: i.basePrice, currency: i.currency, category: i.category })),
+        adjustments: receipt.adjustments.map(a => ({ ...a })),
+        total: receipt.total,
+        previewUrl,
+    };
+}
+
+export function emptyDraft({ currency, category, todayStr }) {
+    return {
+        mode: 'new',
+        source: 'manual',
+        receiptId: null,
+        shop: '',
+        receiptDate: todayStr,
+        currency,
+        items: [{ name: '', originalName: '', price: null, currency, category }],
+        adjustments: [],
+        total: null,
+        previewUrl: null,
+    };
+}
+
+export function draftFromReceipt({ key, receiptId, shop, receiptDate, stored, items }) {
+    return {
+        mode: 'edit',
+        source: stored?.source || 'legacy',
+        key,
+        receiptId,
+        shop,
+        receiptDate,
+        currency: stored?.currency || items[0]?.currency,
+        items: items.map(i => ({
+            id: i.id,
+            name: i.name,
+            originalName: i.originalName || '',
+            price: Number(i.originalPrice) || 0,
+            initialPrice: Number(i.originalPrice) || 0,
+            currency: i.currency,
+            category: i.category,
+        })),
+        adjustments: [],
+        total: stored?.total ?? null,
+        previewUrl: null,
+    };
+}
+
+// Итоги для подсказки в редакторе: сумма позиций (с распределёнными сборами) и сверка с итогом чека
+export function summarizeDraft(draft) {
+    const rows = draft.items.filter(i => Number(i.price));
+    const currencies = [...new Set(rows.map(i => i.currency))];
+    const currency = currencies.length === 1 ? currencies[0] : null;
+    const adjustmentsTotal = currency ? draft.adjustments.reduce((s, a) => s + (Number(a.amount) || 0), 0) : 0;
+    const itemsTotal = round2(rows.reduce((s, i) => s + Number(i.price), 0) + adjustmentsTotal);
+    const total = Number(draft.total);
+    return {
+        currency,
+        itemsTotal,
+        mismatch: currency && Number.isFinite(total) && total > 0 ? isTotalMismatch(itemsTotal, total) : false,
+    };
+}
+
+// Проверяет черновик и возвращает позиции для записи; бросает Error с понятным текстом
+export function buildItemsFromDraft(draft, categories) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.receiptDate || '')) throw new Error('Укажите дату чека');
+
+    const rows = draft.items.filter(i => String(i.name || '').trim() || Number(i.price));
+    if (rows.length === 0) throw new Error('Добавьте хотя бы одну позицию');
+    rows.forEach((row, idx) => {
+        if (!String(row.name || '').trim()) throw new Error(`Позиция ${idx + 1}: укажите название`);
+        if (!Number.isFinite(Number(row.price)) || Number(row.price) === 0) throw new Error(`«${row.name}»: укажите цену`);
+        if (!SUPPORTED_CURRENCIES.includes(row.currency)) throw new Error(`«${row.name}»: неизвестная валюта`);
+    });
+
+    const currencies = new Set(rows.map(r => r.currency));
+    const adjustments = draft.mode === 'new' && currencies.size === 1
+        ? normalizeAdjustments(draft.adjustments)
+        : [];
+    const adjustmentsTotal = round2(adjustments.reduce((s, a) => s + a.amount, 0));
+    const basePrices = rows.map(r => round2(Number(r.price)));
+    const finals = draft.mode === 'new' ? allocateAdjustments(basePrices, adjustmentsTotal) : basePrices;
+
+    const items = rows.map((row, idx) => {
+        const item = {
+            name: String(row.name).trim(),
+            originalName: String(row.originalName || '').trim() || String(row.name).trim(),
+            currency: row.currency,
+            // У сохранённой позиции из удалённой категории категория остаётся, пока её не сменят явно
+            category: categories.includes(row.category) || (row.id && row.category) ? row.category : categories[0],
+            originalPrice: finals[idx],
+        };
+        if (row.id) item.id = row.id;
+        if (draft.mode === 'new') {
+            item.basePrice = basePrices[idx];
+        } else if (row.initialPrice !== undefined && round2(Number(row.price)) !== round2(row.initialPrice)) {
+            // Цену поправили вручную — старая «цена до сборов» больше не актуальна
+            item.basePrice = finals[idx];
+        }
+        return item;
+    });
+
+    return { items, adjustments, singleCurrency: currencies.size === 1 ? [...currencies][0] : null };
+}
