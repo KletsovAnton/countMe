@@ -37,6 +37,20 @@
             from { transform: translateY(-120%); opacity: 0; }
             to   { transform: translateY(0); opacity: 1; }
         }
+        input[type="date"] {
+            -webkit-appearance: none;
+            appearance: none;
+            display: block;
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
+            box-sizing: border-box;
+            text-align: left;
+        }
+        input[type="date"]::-webkit-date-and-time-value {
+            text-align: left;
+            min-height: 1.2em;
+        }
         .toast-animate {
             animation: slideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
@@ -125,7 +139,7 @@
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-slate-500 mb-1">Дата чека</label>
-                    <input type="date" id="edit-receipt-date" class="w-full bg-slate-50 border border-slate-200 rounded-2xl px-3.5 h-11 focus:outline-none focus:bg-white focus:border-indigo-500">
+                    <input type="date" id="edit-receipt-date" class="block w-full min-w-0 bg-slate-50 border border-slate-200 rounded-2xl px-3.5 h-11 focus:outline-none focus:bg-white focus:border-indigo-500">
                 </div>
             </div>
             <div class="grid grid-cols-2 gap-2.5">
