@@ -1,11 +1,11 @@
 import './style.css';
 import Chart from 'chart.js/auto';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
-import { collection, getDocs, deleteDoc, doc, updateDoc, getDoc, setDoc, query, orderBy, writeBatch } from 'firebase/firestore';
+import { collection, doc, updateDoc, getDoc, setDoc, query, orderBy, writeBatch, onSnapshot } from 'firebase/firestore';
 
 import { auth, db } from './firebase.js';
 import { getTodayDateStr, escapeHtml, formatMoney, formatDateReadable, buildReceiptDateRules, authErrorMessage, formatDuration, selectedKeys } from './utils.js';
-import { getLatestRates, getRatesForDate, convertToRub, SUPPORTED_CURRENCIES } from './rates.js';
+import { getLatestRates, getRatesForDate, convertToRub, getCachedRates, approximateRub, SUPPORTED_CURRENCIES } from './rates.js';
 import { normalizeAiResult, receiptTotalInCurrency, isTotalMismatch, legacyReceiptKey, ADJUSTMENT_LABELS, draftFromAi, draftFromReceipt, emptyDraft, buildItemsFromDraft } from './receipts.js';
 import { initEditor, openEditor } from './editor.js';
 import { getPref, setPref } from './prefs.js';
@@ -34,6 +34,10 @@ let deselectedFilterKeys = {
 let selectedFilterKeys = new Set();
 
 let historyPeriod = getPref('historyPeriod', 'all');
+// История рисуется страницами, раскрытые чеки остаются раскрытыми при обновлении данных
+const HISTORY_PAGE_SIZE = 30;
+let historyLimit = HISTORY_PAGE_SIZE;
+const expandedReceipts = new Set();
 let historySort = getPref('historySort', 'receiptDate');
 
 let lastAiJob = null;
@@ -49,14 +53,32 @@ let authMode = 'login';
 
 const CHART_COLORS = ['#4f46e5', '#db2777', '#059669', '#d97706', '#7c3aed', '#0891b2', '#e11d48', '#2563eb', '#65a30d', '#475569'];
 
-// Запись в Firestore с понятной ошибкой вместо молчаливого сбоя
+// Сколько ждать подтверждения сервера, прежде чем считать запись поставленной в очередь
+const WRITE_ACK_TIMEOUT_MS = 4000;
+let queuedNoticeShown = false;
+
+// Запись в Firestore с понятной ошибкой вместо молчаливого сбоя.
+// Без сети Firestore не отклоняет запись, а держит её в очереди — промис не завершается,
+// пока не появится связь. Поэтому ждём не дольше таймаута и считаем запись сохранённой на устройстве.
 async function runWrite(action, errorText) {
-    try {
-        await action();
-        return true;
-    } catch (err) {
+    const write = Promise.resolve().then(action);
+    write.catch(err => {
         console.error(errorText, err);
         showToast(`${errorText}: ${err.message}`, 'error');
+    });
+
+    const timeout = navigator.onLine ? WRITE_ACK_TIMEOUT_MS : 300;
+    try {
+        const outcome = await Promise.race([
+            write.then(() => 'saved'),
+            new Promise(resolve => setTimeout(() => resolve('queued'), timeout)),
+        ]);
+        if (outcome === 'queued' && !queuedNoticeShown) {
+            queuedNoticeShown = true;
+            showToast('Нет связи с сервером — изменения сохранены на устройстве и отправятся при подключении', 'warning');
+        }
+        return true;
+    } catch {
         return false;
     }
 }
@@ -165,6 +187,13 @@ onAuthStateChanged(auth, async (user) => {
             document.getElementById('auth-screen').classList.remove('hidden');
         }
     } else {
+        // Выход: отписываемся от синхронизации и не держим чужие данные в памяти
+        stopListeners();
+        allItems = [];
+        allReceipts = new Map();
+        userCategories = [];
+        currentUserApiKey = "";
+        document.getElementById('loading-overlay').classList.add('hidden');
         document.getElementById('auth-screen').classList.remove('hidden');
         document.getElementById('apikey-screen').classList.add('hidden');
         document.getElementById('app-screen').classList.add('hidden');
@@ -251,6 +280,10 @@ window.retryAiJob = async function() {
 
 // Одновременно идёт только один запрос к ИИ — иначе ответы перепутаются в общей панели
 function ensureCanStartAi() {
+    if (!navigator.onLine) {
+        showToast('Нет интернета — распознавание ИИ недоступно. Используйте «Добавить вручную»', 'warning');
+        return false;
+    }
     if (aiBusy) {
         showToast('Дождитесь, пока ИИ закончит текущий запрос', 'warning');
         return false;
@@ -333,13 +366,15 @@ async function saveDraft(draft) {
         return false;
     }
 
-    let rateInfo;
+    // Без сети курс на дату чека недоступен: сохраняем с пометкой ratePending и приблизительной
+    // суммой по кэшу, а точный пересчёт сделает fillPendingRates при подключении
+    let rateInfo = null;
     try {
         rateInfo = await getRatesForDate(draft.receiptDate, getTodayDateStr());
     } catch (err) {
-        showToast(err.message, 'error');
-        return false;
+        if (navigator.onLine) console.warn('Курсы недоступны, сохраняем с отложенным пересчётом', err);
     }
+    const cachedRates = rateInfo ? null : getCachedRates();
 
     const { items, adjustments, singleCurrency } = built;
     const itemsTotal = Math.round(items.reduce((s, i) => s + i.originalPrice, 0) * 100) / 100;
@@ -370,12 +405,26 @@ async function saveDraft(draft) {
     try {
         for (const item of items) {
             const { id, ...fields } = item;
+            const existing = existingItems.find(e => e.id === id);
+            let rateFields;
+            if (rateInfo) {
+                rateFields = {
+                    priceRub: convertToRub(item.originalPrice, item.currency, rateInfo.rates),
+                    rate: rateInfo.rates[item.currency],
+                    rateDate: rateInfo.date,
+                    ratePending: false,
+                };
+            } else if (existing?.rate && !existing.ratePending && existing.currency === item.currency && existing.receiptDate === draft.receiptDate) {
+                // Дата и валюта не менялись — сохранённый курс по-прежнему верный
+                rateFields = { priceRub: item.originalPrice / existing.rate, rate: existing.rate, rateDate: existing.rateDate, ratePending: false };
+            } else {
+                rateFields = { priceRub: approximateRub(item.originalPrice, item.currency, cachedRates), rate: null, rateDate: null, ratePending: item.currency !== 'RUB' };
+                if (item.currency === 'RUB') rateFields.rate = 1;
+            }
             const itemObj = {
                 ...fields,
                 receiptId: receiptRef.id,
-                priceRub: convertToRub(item.originalPrice, item.currency, rateInfo.rates),
-                rate: rateInfo.rates[item.currency],
-                rateDate: rateInfo.date,
+                ...rateFields,
                 shop: receiptFields.shop,
                 receiptDate: receiptFields.receiptDate,
                 createdAt,
@@ -383,7 +432,7 @@ async function saveDraft(draft) {
             const ref = id ? doc(db, `users/${uid}/items`, id) : doc(collection(db, `users/${uid}/items`));
             if (id) batch.update(ref, itemObj);
             else batch.set(ref, itemObj);
-            savedItems.push({ ...(existingItems.find(e => e.id === id) || {}), ...itemObj, id: ref.id });
+            savedItems.push({ ...(existing || {}), ...itemObj, id: ref.id });
         }
     } catch (err) {
         showToast(err.message, 'error');
@@ -897,37 +946,84 @@ function renderCategories() {
 }
 
 // ==================== ЗАГРУЗКА ДАННЫХ ====================
+const DEFAULT_CATEGORIES = ['Еда и супермаркеты', 'Кафе и рестораны', 'Транспорт', 'Жилье и быт', 'Развлечения'];
+let unsubscribers = [];
+let renderScheduled = false;
+
+function stopListeners() {
+    unsubscribers.forEach(unsubscribe => unsubscribe());
+    unsubscribers = [];
+}
+
+// Несколько снимков подряд (позиции, чеки, категории) — одна перерисовка
+function scheduleRender() {
+    if (renderScheduled) return;
+    renderScheduled = true;
+    requestAnimationFrame(() => {
+        renderScheduled = false;
+        refreshAll();
+    });
+}
+
+function listenError(what) {
+    return (err) => {
+        console.error(`Ошибка синхронизации: ${what}`, err);
+        showToast(`Не удалось синхронизировать ${what}: ${err.message}`, 'error');
+    };
+}
+
+// Живая синхронизация: изменения с другого устройства этого аккаунта появляются без перезагрузки.
+// Первый снимок приходит из локального кэша, поэтому без сети приложение тоже открывается.
 async function loadData() {
     const overlay = document.getElementById('loading-overlay');
     overlay.classList.remove('hidden');
-    try {
-        const catDoc = await getDoc(doc(db, `users/${currentUser.uid}/settings`, 'categories'));
-        if (catDoc.exists() && catDoc.data().list) {
-            userCategories = catDoc.data().list;
+    stopListeners();
+    const uid = currentUser.uid;
+
+    let resolveItems, resolveReceipts, resolveCategories;
+    const firstSnapshots = Promise.all([
+        new Promise(r => { resolveItems = r; }),
+        new Promise(r => { resolveReceipts = r; }),
+        new Promise(r => { resolveCategories = r; }),
+    ]);
+
+    unsubscribers.push(onSnapshot(doc(db, `users/${uid}/settings`, 'categories'), (snap) => {
+        if (snap.exists() && snap.data().list) {
+            userCategories = snap.data().list;
         } else {
-            userCategories = ['Еда и супермаркеты', 'Кафе и рестораны', 'Транспорт', 'Жилье и быт', 'Развлечения'];
-            await saveCategories(userCategories);
+            userCategories = [...DEFAULT_CATEGORIES];
+            // Создаём список по умолчанию только по ответу сервера — пустой кэш ещё не значит, что списка нет
+            if (!snap.metadata.fromCache) saveCategories(userCategories).catch(listenError('категории'));
         }
-        const q = query(collection(db, `users/${currentUser.uid}/items`), orderBy('createdAt', 'desc'));
-        const [itemsSnapshot, receiptsSnapshot] = await Promise.all([
-            getDocs(q),
-            getDocs(collection(db, `users/${currentUser.uid}/receipts`)),
-        ]);
-        allItems = itemsSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
-        allReceipts = new Map(receiptsSnapshot.docs.map(docSnap => [docSnap.id, { id: docSnap.id, ...docSnap.data() }]));
-    } catch (err) {
-        console.error('Ошибка загрузки данных', err);
-        showToast(`Не удалось загрузить данные: ${err.message}`, 'error');
-    }
+        resolveCategories();
+        scheduleRender();
+    }, listenError('категории')));
 
-    await runMigrationIfNeeded();
+    const itemsQuery = query(collection(db, `users/${uid}/items`), orderBy('createdAt', 'desc'));
+    unsubscribers.push(onSnapshot(itemsQuery, (snap) => {
+        allItems = snap.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+        resolveItems();
+        scheduleRender();
+    }, listenError('траты')));
 
+    unsubscribers.push(onSnapshot(collection(db, `users/${uid}/receipts`), (snap) => {
+        allReceipts = new Map(snap.docs.map(docSnap => [docSnap.id, { id: docSnap.id, ...docSnap.data() }]));
+        resolveReceipts();
+        scheduleRender();
+    }, listenError('чеки')));
+
+    await firstSnapshots;
     overlay.classList.add('hidden');
     refreshAll();
+
+    await runMigrationIfNeeded();
+    fillPendingRates();
 }
 
 // Однократный перевод старых записей на схему с отдельными чеками (с резервной копией)
 async function runMigrationIfNeeded() {
+    // Без сети миграция не запускается: записи встали бы в очередь, а резервная копия — нет
+    if (!navigator.onLine) return;
     try {
         if (await getSchemaVersion(currentUser.uid) >= SCHEMA_VERSION) return;
         const hasLegacy = allItems.some(item => !item.receiptId);
@@ -936,13 +1032,39 @@ async function runMigrationIfNeeded() {
         await migrateToV2(currentUser.uid, allItems, getTodayDateStr());
 
         if (hasLegacy) {
-            const receiptsSnapshot = await getDocs(collection(db, `users/${currentUser.uid}/receipts`));
-            allReceipts = new Map(receiptsSnapshot.docs.map(docSnap => [docSnap.id, { id: docSnap.id, ...docSnap.data() }]));
             showToast('Данные обновлены: суммы пересчитаны по курсу на дату чека, резервная копия сохранена');
         }
     } catch (err) {
         console.error('Ошибка миграции', err);
         showToast(`Не удалось обновить формат данных, попробуем при следующем входе: ${err.message}`, 'warning');
+    }
+}
+
+// Траты, сохранённые без сети, получают точный курс на дату чека, как только он доступен
+let fillingRates = false;
+async function fillPendingRates() {
+    if (fillingRates || !navigator.onLine || !currentUser) return;
+    const pending = allItems.filter(i => i.ratePending);
+    if (pending.length === 0) return;
+    fillingRates = true;
+    try {
+        const updates = [];
+        for (const item of pending) {
+            const { date, rates } = await getRatesForDate(item.receiptDate, getTodayDateStr());
+            updates.push(batch => batch.update(doc(db, `users/${currentUser.uid}/items`, item.id), {
+                priceRub: convertToRub(Number(item.originalPrice) || 0, item.currency, rates),
+                rate: rates[item.currency],
+                rateDate: date,
+                ratePending: false,
+            }));
+        }
+        if (await runWrite(() => commitInBatches(updates), 'Не удалось пересчитать суммы')) {
+            showToast(`Пересчитано по курсу на дату чека: ${pending.length} трат(ы)`);
+        }
+    } catch (err) {
+        console.warn('Курсы пока недоступны, пересчёт позже', err);
+    } finally {
+        fillingRates = false;
     }
 }
 
@@ -1100,9 +1222,14 @@ window.renderDashboard = async function() {
         }
     }
     // Траты в валюте отображения берутся как есть, без двойной конвертации через рубль
+    // У трат, сохранённых без сети и без кэша курсов, суммы в рублях пока нет (priceRub = null)
     const amountInTarget = (item) => item.currency === targetCurrency
         ? (Number(item.originalPrice) || 0)
         : (Number(item.priceRub) || 0) * rubToTargetRate;
+    const pendingCount = filteredByPeriod.filter(i => i.ratePending).length;
+    const pendingNote = document.getElementById('dashboard-pending-note');
+    pendingNote.classList.toggle('hidden', pendingCount === 0);
+    pendingNote.innerText = `${pendingCount} трат(ы) сохранены без сети — суммы приблизительные и уточнятся при подключении`;
 
     const filteredItems = filteredByPeriod.filter(item => {
         const key = dashboardMode === 'category'
@@ -1245,6 +1372,7 @@ window.renderDashboard = async function() {
 // ==================== ИСТОРИЯ ЧЕКОВ И МОДАЛЬНОЕ РЕДАКТИРОВАНИЕ ====================
 window.setHistoryPeriod = function(period) {
     historyPeriod = period;
+    historyLimit = HISTORY_PAGE_SIZE;
     setPref('historyPeriod', period);
     document.querySelectorAll('.hist-period-btn').forEach(btn => {
         if (btn.dataset.hperiod === period) {
@@ -1345,6 +1473,8 @@ function renderList() {
     });
 
     countEl.innerText = `${receipts.length} чек(ов)`;
+    const hiddenCount = Math.max(0, receipts.length - historyLimit);
+    receipts = receipts.slice(0, historyLimit);
 
     if (receipts.length === 0) {
         listEl.innerHTML = `<div class="bg-white rounded-3xl p-8 text-center text-xs text-slate-400 border border-slate-200/70">За выбранный период записей не найдено</div>`;
@@ -1366,7 +1496,7 @@ function renderList() {
 
         return `
             <div class="bg-white rounded-3xl p-4 border border-slate-200/70 shadow-sm">
-                <div data-action="toggle-receipt" data-index="${index}" class="flex justify-between items-center cursor-pointer select-none gap-2">
+                <div data-action="toggle-receipt" data-index="${index}" data-key="${escapeHtml(receipt.key)}" class="flex justify-between items-center cursor-pointer select-none gap-2">
                     <div class="flex items-center gap-3 min-w-0">
                         <span class="bg-indigo-50 text-indigo-600 text-xs font-extrabold px-2.5 py-1.5 rounded-xl shrink-0">#${receiptNum}</span>
                         <div class="min-w-0">
@@ -1387,12 +1517,12 @@ function renderList() {
                             <i class="fa-solid fa-pen text-[11px]"></i>
                         </button>
                         <div class="w-6 flex justify-center">
-                            <i class="fa-solid fa-chevron-down text-slate-400 text-xs transition-transform duration-200" id="icon-${index}"></i>
+                            <i class="fa-solid fa-chevron-down text-slate-400 text-xs transition-transform duration-200" id="icon-${index}" style="transform: rotate(${expandedReceipts.has(receipt.key) ? 180 : 0}deg)"></i>
                         </div>
                     </div>
                 </div>
 
-                <div id="receipt-body-${index}" class="hidden mt-3.5 pt-3 border-t border-slate-100 space-y-2">
+                <div id="receipt-body-${index}" class="${expandedReceipts.has(receipt.key) ? '' : 'hidden'} mt-3.5 pt-3 border-t border-slate-100 space-y-2">
                     ${mismatch ? `
                         <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-3 text-[11px] font-semibold">
                             <i class="fa-solid fa-triangle-exclamation mr-1"></i>
@@ -1417,22 +1547,29 @@ function renderList() {
                         </div>
                     `).join('')}
                     ${renderAdjustments(receipt)}
-                    ${receipt.items[0]?.rateDate ? `<p class="text-[10px] text-slate-400 text-right">Курс на ${escapeHtml(formatDateReadable(receipt.items[0].rateDate))}</p>` : ''}
+                    ${receipt.items.some(i => i.ratePending)
+                        ? `<p class="text-[10px] text-amber-600 text-right"><i class="fa-solid fa-clock mr-1"></i>Сумма в рублях пересчитается по курсу на дату чека при подключении к сети</p>`
+                        : (receipt.items[0]?.rateDate ? `<p class="text-[10px] text-slate-400 text-right">Курс на ${escapeHtml(formatDateReadable(receipt.items[0].rateDate))}</p>` : '')}
                 </div>
             </div>
         `;
-    }).join('');
+    }).join('') + (hiddenCount > 0 ? `
+        <button data-action="show-more" class="w-full h-11 bg-white hover:bg-slate-50 border border-slate-200/70 text-slate-600 rounded-2xl text-xs font-bold transition">
+            Показать ещё (${hiddenCount})
+        </button>` : '');
 }
 
-function toggleReceipt(index) {
+function toggleReceipt(index, key) {
     const bodyEl = document.getElementById(`receipt-body-${index}`);
     const iconEl = document.getElementById(`icon-${index}`);
     if (bodyEl.classList.contains('hidden')) {
         bodyEl.classList.remove('hidden');
         iconEl.style.transform = 'rotate(180deg)';
+        expandedReceipts.add(key);
     } else {
         bodyEl.classList.add('hidden');
         iconEl.style.transform = 'rotate(0deg)';
+        expandedReceipts.delete(key);
     }
 }
 
@@ -1497,9 +1634,12 @@ document.addEventListener('click', (e) => {
     } else if (action === 'toggle-filter') {
         toggleFilterChip(el.dataset.key);
     } else if (action === 'toggle-receipt') {
-        toggleReceipt(el.dataset.index);
+        toggleReceipt(el.dataset.index, el.dataset.key);
     } else if (action === 'edit-receipt') {
         openReceiptEditor(el.dataset.key);
+    } else if (action === 'show-more') {
+        historyLimit += HISTORY_PAGE_SIZE;
+        renderList();
     } else if (action === 'delete-item') {
         deleteItem(el.dataset.id);
     }
@@ -1509,6 +1649,23 @@ document.addEventListener('change', (e) => {
     const el = e.target.closest('[data-action="update-category"]');
     if (el) updateCategory(el.dataset.id, el.value, el);
 });
+
+// ==================== СЕТЬ ====================
+function updateOnlineState() {
+    document.getElementById('offline-banner').classList.toggle('hidden', navigator.onLine);
+}
+
+window.addEventListener('offline', updateOnlineState);
+window.addEventListener('online', () => {
+    updateOnlineState();
+    queuedNoticeShown = false;
+    if (currentUser) {
+        showToast('Соединение восстановлено — синхронизируем изменения');
+        fillPendingRates();
+        runMigrationIfNeeded();
+    }
+});
+updateOnlineState();
 
 // ==================== ВОССТАНОВЛЕНИЕ НАСТРОЕК ИНТЕРФЕЙСА ====================
 function applySavedPrefs() {

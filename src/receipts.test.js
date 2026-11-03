@@ -179,3 +179,29 @@ describe('ui helpers', () => {
         expect(formatDuration(75.6)).toBe('1:15');
     });
 });
+
+import { getCachedRates, approximateRub } from './rates.js';
+
+describe('offline rates', () => {
+    function fakeStorage(entries) {
+        const keys = Object.keys(entries);
+        return { length: keys.length, key: i => keys[i], getItem: k => JSON.stringify(entries[k]) };
+    }
+
+    it('picks the most recent cached rates', () => {
+        const storage = fakeStorage({
+            'rates:2026-03-10': { date: '2026-03-10', rates: { RUB: 1, THB: 0.4 } },
+            'rates:latest:2026-11-01': { date: '2026-11-01', rates: { RUB: 1, THB: 0.45 } },
+            'countme:prefs': { x: 1 },
+        });
+        expect(getCachedRates(storage).date).toBe('2026-11-01');
+    });
+
+    it('approximates RUB from the cache and stays exact for rubles', () => {
+        const cached = { rates: { RUB: 1, THB: 0.5 } };
+        expect(approximateRub(100, 'THB', cached)).toBe(200);
+        expect(approximateRub(100, 'RUB', null)).toBe(100);
+        expect(approximateRub(100, 'VND', cached)).toBeNull();
+        expect(approximateRub(100, 'THB', null)).toBeNull();
+    });
+});

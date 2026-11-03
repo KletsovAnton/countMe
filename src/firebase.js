@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from 'firebase/firestore';
 
 // Конфиг Firebase публичен по задумке; доступ к данным защищают правила firestore.rules
 const firebaseConfig = {
@@ -15,4 +15,8 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+// Локальный кэш в IndexedDB: приложение открывается без сети, а записи без сети
+// ставятся в очередь и уходят на сервер при подключении
+export const db = initializeFirestore(app, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});

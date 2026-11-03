@@ -6,6 +6,10 @@
     <title>AI Кошелек — Учет расходов</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Кошелек">
+    <meta name="theme-color" content="#4f46e5">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 </head>
 <body class="bg-slate-100 text-slate-900 antialiased min-h-screen selection:bg-indigo-100 selection:text-indigo-900">
 
@@ -175,6 +179,14 @@
                     <i class="fa-solid fa-trash-can mr-1"></i> Удалить категорию
                 </button>
             </div>
+        </div>
+    </div>
+
+    <!-- ==================== НЕТ СЕТИ ==================== -->
+    <div id="offline-banner" class="fixed left-0 right-0 bottom-0 z-30 hidden" style="padding-bottom: calc(4.5rem + env(safe-area-inset-bottom))">
+        <div class="mx-4 mb-2 bg-slate-800 text-white text-[11px] font-bold rounded-2xl px-3.5 py-2.5 flex items-center gap-2 shadow-lg max-w-md sm:mx-auto">
+            <i class="fa-solid fa-cloud-arrow-up text-amber-300"></i>
+            <span>Нет сети. Изменения сохраняются на устройстве и отправятся при подключении</span>
         </div>
     </div>
 
@@ -352,6 +364,7 @@
                         <span class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 block mb-0.5">Итого расходов</span>
                         <span id="total-sum" class="text-2xl font-black text-slate-900 tracking-tight">0.00 RUB</span>
                         <span id="total-count-badge" class="block text-[11px] font-semibold text-slate-400 mt-0.5">Операций: 0</span>
+                        <span id="dashboard-pending-note" class="block text-[11px] font-semibold text-amber-600 mt-1 hidden"></span>
                     </div>
                     <select id="dashboard-currency" onchange="renderDashboard()" class="h-9 text-xs font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200/80 rounded-xl px-3 focus:outline-none cursor-pointer">
                         <option value="RUB" selected>RUB ₽</option>
