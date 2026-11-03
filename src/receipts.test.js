@@ -205,3 +205,22 @@ describe('offline rates', () => {
         expect(approximateRub(100, 'THB', null)).toBeNull();
     });
 });
+
+import { mergeSavedItems } from './receipts.js';
+
+describe('mergeSavedItems', () => {
+    it('does not duplicate items the live listener already added', () => {
+        // onSnapshot уже положил новую позицию в список до завершения записи
+        const current = [{ id: 'new1', name: 'Кола' }, { id: 'old', name: 'Хлеб' }];
+        const saved = [{ id: 'new1', name: 'Кола', priceRub: 75 }];
+        const result = mergeSavedItems(current, saved);
+        expect(result.filter(i => i.id === 'new1')).toHaveLength(1);
+        expect(result.find(i => i.id === 'new1').priceRub).toBe(75);
+        expect(result).toHaveLength(2);
+    });
+    it('drops items removed from an edited receipt', () => {
+        const current = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+        const result = mergeSavedItems(current, [{ id: 'a', name: 'edited' }], ['b']);
+        expect(result.map(i => i.id).sort()).toEqual(['a', 'c']);
+    });
+});

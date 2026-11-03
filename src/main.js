@@ -6,7 +6,7 @@ import { collection, doc, updateDoc, getDoc, setDoc, query, orderBy, writeBatch,
 import { auth, db } from './firebase.js';
 import { getTodayDateStr, escapeHtml, formatMoney, formatDateReadable, buildReceiptDateRules, authErrorMessage, formatDuration, selectedKeys } from './utils.js';
 import { getLatestRates, getRatesForDate, convertToRub, getCachedRates, approximateRub, SUPPORTED_CURRENCIES } from './rates.js';
-import { normalizeAiResult, receiptTotalInCurrency, isTotalMismatch, legacyReceiptKey, ADJUSTMENT_LABELS, draftFromAi, draftFromReceipt, emptyDraft, buildItemsFromDraft } from './receipts.js';
+import { normalizeAiResult, receiptTotalInCurrency, isTotalMismatch, legacyReceiptKey, ADJUSTMENT_LABELS, draftFromAi, draftFromReceipt, emptyDraft, buildItemsFromDraft, mergeSavedItems } from './receipts.js';
 import { initEditor, openEditor } from './editor.js';
 import { getPref, setPref } from './prefs.js';
 import { getSchemaVersion, migrateToV2, SCHEMA_VERSION } from './migration.js';
@@ -445,8 +445,7 @@ async function saveDraft(draft) {
 
     if (!await runWrite(() => batch.commit(), 'Не удалось сохранить чек')) return false;
 
-    const replacedIds = new Set(existingItems.map(i => i.id));
-    allItems = [...savedItems, ...allItems.filter(i => !replacedIds.has(i.id))];
+    allItems = mergeSavedItems(allItems, savedItems, removedItems.map(i => i.id));
     allReceipts.set(receiptRef.id, { id: receiptRef.id, ...receiptObj });
     refreshAll();
     showToast(draft.mode === 'new'

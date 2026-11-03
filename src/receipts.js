@@ -238,3 +238,11 @@ export function buildItemsFromDraft(draft, categories) {
 
     return { items, adjustments, singleCurrency: currencies.size === 1 ? [...currencies][0] : null };
 }
+
+// Обновляет локальный список после сохранения чека. Живая синхронизация (onSnapshot) может
+// успеть добавить новые позиции раньше, чем завершится запись, поэтому убираем всё с теми же id,
+// а также удалённые из чека позиции — иначе позиция показывается дважды
+export function mergeSavedItems(currentItems, savedItems, removedIds = []) {
+    const drop = new Set([...savedItems.map(i => i.id), ...removedIds]);
+    return [...savedItems, ...currentItems.filter(i => !drop.has(i.id))];
+}
