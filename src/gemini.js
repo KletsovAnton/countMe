@@ -85,8 +85,10 @@ async function requestGemini(model, body, apiKey) {
     }
 }
 
-function buildVariants(modelId, basePayload) {
-    const gc = (extra) => ({ ...basePayload, generationConfig: { responseMimeType: 'application/json', ...extra } });
+// json: false — обычный текстовый ответ (чат), иначе модель просят вернуть JSON
+function buildVariants(modelId, basePayload, json = true) {
+    const mime = json ? { responseMimeType: 'application/json' } : {};
+    const gc = (extra) => ({ ...basePayload, generationConfig: { ...mime, ...extra } });
     const low = { thinkingConfig: { thinkingLevel: 'low' } };
     const off = { thinkingConfig: { thinkingBudget: 0 } };
 
@@ -95,14 +97,14 @@ function buildVariants(modelId, basePayload) {
 }
 
 // onStatus(model) — перед запросом к модели; onSwitch(from, to) — после автосмены
-export async function callGeminiWithModelFallback(basePayload, apiKey, { onStatus = () => {}, onSwitch = () => {} } = {}) {
+export async function callGeminiWithModelFallback(basePayload, apiKey, { onStatus = () => {}, onSwitch = () => {}, json = true } = {}) {
     const total = GEMINI_MODELS.length;
 
     for (let attempt = 0; attempt < total; attempt++) {
         const model = getCurrentModel();
         onStatus(model);
 
-        const variants = buildVariants(model.id, basePayload);
+        const variants = buildVariants(model.id, basePayload, json);
         const errors = [];
         let lastErr = null;
 

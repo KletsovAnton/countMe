@@ -6,8 +6,10 @@ import { collection, doc, updateDoc, getDoc, setDoc, query, orderBy, writeBatch,
 import { auth, db } from './firebase.js';
 import { getTodayDateStr, escapeHtml, formatMoney, formatDateReadable, buildReceiptDateRules, authErrorMessage, formatDuration, selectedKeys } from './utils.js';
 import { getLatestRates, getRatesForDate, convertToRub, getCachedRates, approximateRub, SUPPORTED_CURRENCIES } from './rates.js';
-import { normalizeAiResult, receiptTotalInCurrency, isTotalMismatch, legacyReceiptKey, ADJUSTMENT_LABELS, draftFromAi, draftFromReceipt, emptyDraft, buildItemsFromDraft, mergeSavedItems } from './receipts.js';
+import { normalizeAiResult, receiptTotalInCurrency, isTotalMismatch, legacyReceiptKey, ADJUSTMENT_LABELS, draftFromAi, draftFromReceipt, emptyDraft, buildItemsFromDraft, filterReceipts, mergeSavedItems } from './receipts.js';
 import { initEditor, openEditor } from './editor.js';
+import { buildExportRows, toCsv, toXlsx, deliverFile } from './export.js';
+import { buildSpendingContext, buildMonthlySummary, monthlySummaryToText, renderAnswerHtml } from './insights.js';
 import { getPref, setPref } from './prefs.js';
 import { getSchemaVersion, migrateToV2, SCHEMA_VERSION } from './migration.js';
 import { getCurrentModel, setAndSaveModelIndex, setOnModelChange, callGeminiWithModelFallback, extractJsonObject, getResponseText, GEMINI_MODELS } from './gemini.js';
@@ -21,8 +23,10 @@ let allItems = [];
 let allReceipts = new Map();
 let userCategories = [];
 
-let pendingFile = null;
-let pendingFileDataUrl = null;
+// Файлы чека перед отправкой ИИ: несколько фото длинного чека и/или PDF
+let pendingFiles = [];
+const MAX_RECEIPT_FILES = 5;
+const MAX_PDF_BYTES = 15 * 1024 * 1024;
 
 let dashboardMode = getPref('dashboardMode', 'category');
 let dashboardPeriod = getPref('dashboardPeriod', 'month');
@@ -193,6 +197,7 @@ onAuthStateChanged(auth, async (user) => {
         allReceipts = new Map();
         userCategories = [];
         currentUserApiKey = "";
+        chatHistory = [];
         document.getElementById('loading-overlay').classList.add('hidden');
         document.getElementById('auth-screen').classList.remove('hidden');
         document.getElementById('apikey-screen').classList.add('hidden');
@@ -693,54 +698,106 @@ function compressAndConvertToBase64(file, maxDimension = 1200, quality = 0.75) {
     });
 }
 
-window.handleFileSelected = function(event) {
-    const file = event.target.files[0];
-    if (!file) return;
+function readAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+    });
+}
 
-    if (!ensureCanStartAi()) {
-        event.target.value = '';
+function renderPendingFiles() {
+    document.getElementById('modal-files').innerHTML = pendingFiles.map((f, idx) => `
+        <div class="relative aspect-[3/4] bg-slate-100 rounded-2xl overflow-hidden border border-slate-200/80 flex items-center justify-center">
+            ${f.isPdf
+                ? `<div class="text-center px-1"><i class="fa-solid fa-file-pdf text-red-500 text-2xl"></i><p class="text-[10px] font-bold text-slate-500 mt-1 break-all line-clamp-2">${escapeHtml(f.file.name)}</p></div>`
+                : `<img src="${f.dataUrl}" alt="Фото ${idx + 1}" class="w-full h-full object-cover">`}
+            <span class="absolute left-1.5 top-1.5 bg-slate-900/70 text-white text-[10px] font-bold rounded-lg px-1.5">${idx + 1}</span>
+            <button onclick="removePendingFile(${idx})" class="absolute right-1.5 top-1.5 w-6 h-6 rounded-full bg-slate-900/70 text-white flex items-center justify-center" title="Убрать">
+                <i class="fa-solid fa-xmark text-[10px]"></i>
+            </button>
+        </div>
+    `).join('');
+}
+
+window.handleFileSelected = async function(event, append = false) {
+    const files = [...event.target.files];
+    event.target.value = '';
+    if (files.length === 0) return;
+    if (!append && !ensureCanStartAi()) return;
+    if (!append) pendingFiles = [];
+
+    for (const file of files) {
+        const isPdf = file.type === 'application/pdf';
+        if (!isPdf && !file.type.startsWith('image/')) {
+            showToast(`«${file.name}» — не фото и не PDF`, 'warning');
+            continue;
+        }
+        if (isPdf && file.size > MAX_PDF_BYTES) {
+            showToast(`PDF «${file.name}» больше 15 МБ`, 'warning');
+            continue;
+        }
+        if (pendingFiles.length >= MAX_RECEIPT_FILES) {
+            showToast(`Не больше ${MAX_RECEIPT_FILES} файлов на один чек`, 'warning');
+            break;
+        }
+        try {
+            pendingFiles.push({ file, isPdf, dataUrl: await readAsDataUrl(file) });
+        } catch {
+            showToast(`Не удалось прочитать «${file.name}»`, 'error');
+        }
+    }
+    if (pendingFiles.length === 0) return;
+
+    if (!append) document.getElementById('modal-prompt-note').value = '';
+    renderPendingFiles();
+    document.getElementById('receipt-modal').classList.remove('hidden');
+};
+
+window.removePendingFile = function(idx) {
+    pendingFiles.splice(idx, 1);
+    if (pendingFiles.length === 0) {
+        cancelReceiptUpload();
         return;
     }
-
-    pendingFile = file;
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        pendingFileDataUrl = e.target.result;
-        document.getElementById('modal-img-preview').src = pendingFileDataUrl;
-        document.getElementById('modal-prompt-note').value = '';
-        document.getElementById('receipt-modal').classList.remove('hidden');
-    };
-    reader.readAsDataURL(file);
-    event.target.value = '';
+    renderPendingFiles();
 };
 
 window.cancelReceiptUpload = function() {
-    pendingFile = null;
-    pendingFileDataUrl = null;
+    pendingFiles = [];
     document.getElementById('receipt-modal').classList.add('hidden');
 };
 
 window.confirmReceiptUpload = async function() {
-    if (!pendingFile) return;
-    const file = pendingFile;
-    const previewUrl = pendingFileDataUrl;
+    if (pendingFiles.length === 0) return;
+    const files = pendingFiles;
+    const previewUrl = files.find(f => !f.isPdf)?.dataUrl || null;
     const userNote = document.getElementById('modal-prompt-note').value.trim();
     const selectedCurrency = document.getElementById('receipt-currency').value;
 
     document.getElementById('receipt-modal').classList.add('hidden');
 
-    let base64, mimeType;
+    // Фото сжимаем, PDF отправляем как есть — Gemini читает PDF напрямую
+    const fileParts = [];
     try {
-        ({ base64, mimeType } = await compressAndConvertToBase64(file));
+        for (const f of files) {
+            if (f.isPdf) {
+                fileParts.push({ inlineData: { mimeType: 'application/pdf', data: f.dataUrl.split(',')[1] } });
+            } else {
+                const { base64, mimeType } = await compressAndConvertToBase64(f.file);
+                fileParts.push({ inlineData: { mimeType, data: base64 } });
+            }
+        }
     } catch (err) {
-        showToast('Не удалось прочитать фото. Попробуйте другое изображение.', 'error');
+        showToast('Не удалось прочитать файл. Попробуйте другое фото.', 'error');
         return;
     }
     const todayStr = getTodayDateStr();
     const currentYear = new Date().getFullYear();
 
     let prompt = `Сегодняшняя дата: ${todayStr} (текущий год — ${currentYear}).
-Распознай чек. Строго соблюдай правила для даты (receiptDate):
+Распознай чек.${files.length > 1 ? ` Это ОДИН чек, снятый на ${files.length} фото/файлах по частям (по порядку сверху вниз). Части могут перекрываться — не дублируй одинаковые позиции на стыках; итог и сборы бери из той части, где они напечатаны.` : ''} Строго соблюдай правила для даты (receiptDate):
 ${buildReceiptDateRules(todayStr)}
 
 Определи название магазина (если неизвестно — "Не указано").
@@ -782,13 +839,12 @@ total: итоговая сумма к оплате, напечатанная н�
         contents: [{
             parts: [
                 { text: prompt },
-                { inlineData: { mimeType: mimeType, data: base64 } }
+                ...fileParts
             ]
         }]
     };
 
-    pendingFile = null;
-    pendingFileDataUrl = null;
+    pendingFiles = [];
 
     await executeAiJob({
         type: 'receipt',
@@ -1447,12 +1503,57 @@ function renderAdjustments(receipt) {
     `;
 }
 
+function parseAmountInput(id) {
+    const raw = document.getElementById(id).value.replace(/\s/g, '').replace(',', '.');
+    const n = Number(raw);
+    return raw !== '' && Number.isFinite(n) ? n : null;
+}
+
+function getHistoryFilters() {
+    return {
+        query: document.getElementById('history-search').value,
+        category: document.getElementById('history-category').value,
+        minRub: parseAmountInput('history-min'),
+        maxRub: parseAmountInput('history-max'),
+    };
+}
+
+function hasActiveHistoryFilters(f) {
+    return Boolean(f.query.trim() || f.category || f.minRub !== null || f.maxRub !== null);
+}
+
+window.onHistoryFilterChange = function() {
+    historyLimit = HISTORY_PAGE_SIZE;
+    renderList();
+};
+
+window.resetHistoryFilters = function() {
+    ['history-search', 'history-category', 'history-min', 'history-max'].forEach(id => { document.getElementById(id).value = ''; });
+    window.onHistoryFilterChange();
+};
+
+function renderHistoryCategoryOptions() {
+    const select = document.getElementById('history-category');
+    const current = select.value;
+    select.innerHTML = `<option value="">Все категории</option>` +
+        userCategories.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+    select.value = userCategories.includes(current) ? current : '';
+}
+
+// Чеки за выбранный период с учётом поиска и фильтров — для списка и для экспорта
+function getFilteredHistoryReceipts() {
+    const filteredItems = filterItemsByPeriodGeneric(allItems, historyPeriod);
+    return filterReceipts(groupItemsIntoReceipts(filteredItems), getHistoryFilters());
+}
+
 function renderList() {
     const listEl = document.getElementById('receipts-list');
     const countEl = document.getElementById('history-receipts-count');
 
-    const filteredItems = filterItemsByPeriodGeneric(allItems, historyPeriod);
-    let receipts = groupItemsIntoReceipts(filteredItems);
+    renderHistoryCategoryOptions();
+    const filtersActive = hasActiveHistoryFilters(getHistoryFilters());
+    document.getElementById('history-filters-reset').classList.toggle('hidden', !filtersActive);
+    let receipts = getFilteredHistoryReceipts();
 
     // Номер чека — порядковый по времени добавления среди всех чеков, а не позиция в отфильтрованном списке
     const receiptNumbers = new Map(
@@ -1476,9 +1577,12 @@ function renderList() {
     receipts = receipts.slice(0, historyLimit);
 
     if (receipts.length === 0) {
-        listEl.innerHTML = `<div class="bg-white rounded-3xl p-8 text-center text-xs text-slate-400 border border-slate-200/70">За выбранный период записей не найдено</div>`;
+        listEl.innerHTML = `<div class="bg-white rounded-3xl p-8 text-center text-xs text-slate-400 border border-slate-200/70">${filtersActive ? 'Ничего не найдено — измените поиск или фильтры' : 'За выбранный период записей не найдено'}</div>`;
         return;
     }
+
+    // Найденные позиции сразу видны: чек с совпадениями раскрывается
+    const isExpanded = (receipt) => expandedReceipts.has(receipt.key) || receipt.matchedIds !== null && receipt.matchedIds !== undefined;
 
     listEl.innerHTML = receipts.map((receipt, index) => {
         const receiptNum = receiptNumbers.get(receipt.key);
@@ -1516,19 +1620,19 @@ function renderList() {
                             <i class="fa-solid fa-pen text-[11px]"></i>
                         </button>
                         <div class="w-6 flex justify-center">
-                            <i class="fa-solid fa-chevron-down text-slate-400 text-xs transition-transform duration-200" id="icon-${index}" style="transform: rotate(${expandedReceipts.has(receipt.key) ? 180 : 0}deg)"></i>
+                            <i class="fa-solid fa-chevron-down text-slate-400 text-xs transition-transform duration-200" id="icon-${index}" style="transform: rotate(${isExpanded(receipt) ? 180 : 0}deg)"></i>
                         </div>
                     </div>
                 </div>
 
-                <div id="receipt-body-${index}" class="${expandedReceipts.has(receipt.key) ? '' : 'hidden'} mt-3.5 pt-3 border-t border-slate-100 space-y-2">
+                <div id="receipt-body-${index}" class="${isExpanded(receipt) ? '' : 'hidden'} mt-3.5 pt-3 border-t border-slate-100 space-y-2">
                     ${mismatch ? `
                         <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-3 text-[11px] font-semibold">
                             <i class="fa-solid fa-triangle-exclamation mr-1"></i>
                             Сумма позиций (${formatMoney(totalOriginal.amount)}) не совпадает с итогом чека (${formatMoney(receipt.stored.total)} ${escapeHtml(receipt.stored.currency)}). Возможно, ИИ пропустил или неверно прочитал позицию.
                         </div>` : ''}
                     ${receipt.items.map(item => `
-                        <div class="flex items-center justify-between bg-slate-50 p-3 rounded-2xl text-xs border border-slate-200/60">
+                        <div class="flex items-center justify-between ${receipt.matchedIds?.has(item.id) ? 'bg-amber-50 border-amber-300' : 'bg-slate-50 border-slate-200/60'} p-3 rounded-2xl text-xs border">
                             <div class="flex-1 pr-2 min-w-0">
                                 <p class="font-bold text-slate-800 break-words">${escapeHtml(item.name)} <span class="text-[11px] text-slate-400 font-normal">(${escapeHtml(item.originalName || item.name)})</span></p>
                                 <div class="flex items-center flex-wrap gap-2 mt-2">
@@ -1620,6 +1724,129 @@ async function deleteItem(id) {
         onAction: () => restoreDeleted([item], receipt),
     });
 }
+
+// ==================== ИИ-ЧАТ ПО ТРАТАМ ====================
+let chatHistory = [];
+let chatBusy = false;
+
+const CHAT_RULES = `Ты — помощник по личным финансам в приложении учёта расходов. Отвечай по-русски, коротко и по делу, простым текстом без таблиц и заголовков; списки — строками с «- », важные числа можно выделить **так**.
+Опирайся только на данные ниже. Готовые итоги по месяцам и категориям уже посчитаны — используй их, а не пересчитывай вручную. Суммы называй в рублях, если пользователь не просит другую валюту. Если данных не хватает для ответа — честно скажи об этом.`;
+
+function renderChat() {
+    const log = document.getElementById('chat-log');
+    log.innerHTML = chatHistory.map(msg => msg.role === 'user'
+        ? `<div class="flex justify-end"><div class="max-w-[85%] bg-indigo-600 text-white text-xs font-semibold rounded-2xl rounded-br-md px-3.5 py-2.5">${escapeHtml(msg.label || msg.text)}</div></div>`
+        : `<div class="flex"><div class="max-w-[92%] ${msg.error ? 'bg-red-50 text-red-700 border-red-100' : 'bg-slate-50 text-slate-800 border-slate-200/70'} border text-xs leading-relaxed rounded-2xl rounded-bl-md px-3.5 py-2.5">${renderAnswerHtml(msg.text, escapeHtml)}</div></div>`
+    ).join('') + (chatBusy ? `<div class="flex"><div class="bg-slate-50 border border-slate-200/70 text-slate-400 text-xs rounded-2xl px-3.5 py-2.5"><i class="fa-solid fa-ellipsis fa-fade"></i> ИИ думает…</div></div>` : '');
+    document.getElementById('chat-clear-btn').classList.toggle('hidden', chatHistory.length === 0);
+    document.getElementById('chat-send-btn').disabled = chatBusy;
+    document.getElementById('insights-btn').disabled = chatBusy;
+}
+
+// label — что показать в чате вместо полного текста запроса (для «Итогов месяца»)
+async function askAi(text, label) {
+    if (chatBusy) return;
+    if (!navigator.onLine) {
+        showToast('Нет интернета — ИИ недоступен', 'warning');
+        return;
+    }
+    if (allItems.length === 0) {
+        showToast('Пока нет трат, по которым можно что-то сказать', 'warning');
+        return;
+    }
+
+    const userMessage = { role: 'user', text, label };
+    chatHistory.push(userMessage);
+    chatBusy = true;
+    renderChat();
+
+    const context = buildSpendingContext(allItems, getTodayDateStr());
+    const payload = {
+        systemInstruction: { parts: [{ text: `${CHAT_RULES}\n\n${context.text}` }] },
+        // Роли должны чередоваться: неудачные вопросы и ошибки в историю для ИИ не попадают
+        contents: chatHistory.filter(m => !m.error && !m.failed).map(m => ({ role: m.role, parts: [{ text: m.text }] })),
+    };
+
+    try {
+        const data = await callGeminiWithModelFallback(payload, currentUserApiKey, {
+            json: false,
+            onSwitch: (from, to) => showToast(`${from.label} недоступна. Переключено на ${to.label}`, 'warning'),
+        });
+        const answer = getResponseText(data).trim();
+        chatHistory.push({ role: 'model', text: answer || 'ИИ вернул пустой ответ. Попробуйте переформулировать вопрос.' });
+    } catch (err) {
+        userMessage.failed = true;
+        chatHistory.push({ role: 'model', text: `Не удалось получить ответ: ${err.message}`, error: true });
+    } finally {
+        chatBusy = false;
+        renderChat();
+    }
+}
+
+window.sendChatMessage = function() {
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text || chatBusy) return;
+    input.value = '';
+    askAi(text);
+};
+
+window.requestMonthlyInsights = function() {
+    const summary = buildMonthlySummary(allItems, getTodayDateStr());
+    const prompt = `Подведи итоги текущего месяца по этим цифрам и дай 3–5 конкретных наблюдений и советов: что выросло или снизилось по сравнению с прошлым месяцем (учитывай, что текущий месяц ещё не закончился — сравнивай темп), на что уходит больше всего, какие траты выделяются. В конце — одна короткая рекомендация.
+
+${monthlySummaryToText(summary)}`;
+    askAi(prompt, 'Итоги месяца и советы');
+};
+
+window.clearChat = function() {
+    if (chatBusy) return;
+    chatHistory = [];
+    renderChat();
+};
+
+// ==================== ЭКСПОРТ ====================
+let exportScope = 'filtered';
+
+function getExportItems() {
+    if (exportScope === 'all') return allItems;
+    return getFilteredHistoryReceipts().flatMap(r => r.matchedIds ? r.items.filter(i => r.matchedIds.has(i.id)) : r.items);
+}
+
+window.setExportScope = function(scope) {
+    exportScope = scope;
+    const active = "flex-1 h-8 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition";
+    const inactive = "flex-1 h-8 text-xs font-semibold rounded-lg text-slate-500 transition";
+    document.getElementById('export-scope-filtered').className = scope === 'filtered' ? active : inactive;
+    document.getElementById('export-scope-all').className = scope === 'all' ? active : inactive;
+    document.getElementById('export-count').innerText = `Позиций в файле: ${getExportItems().length}`;
+};
+
+window.openExportModal = function() {
+    setExportScope('filtered');
+    document.getElementById('export-modal').classList.remove('hidden');
+};
+
+window.closeExportModal = function() {
+    document.getElementById('export-modal').classList.add('hidden');
+};
+
+window.runExport = async function(format) {
+    const items = getExportItems();
+    if (items.length === 0) {
+        showToast('Нет трат для экспорта', 'warning');
+        return;
+    }
+    const rows = buildExportRows(items);
+    const stamp = getTodayDateStr();
+    const result = format === 'csv'
+        ? await deliverFile(toCsv(rows), `countme-${stamp}.csv`, 'text/csv')
+        : await deliverFile(toXlsx(rows), `countme-${stamp}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    if (result !== 'cancelled') {
+        closeExportModal();
+        showToast(`Экспортировано позиций: ${items.length}`);
+    }
+};
 
 // ==================== ДЕЛЕГИРОВАНИЕ СОБЫТИЙ ДЛЯ ДИНАМИЧЕСКИХ СПИСКОВ ====================
 // Данные передаются через data-атрибуты, а не через строки в onclick — так их нельзя «сломать» кавычками

@@ -239,6 +239,33 @@ export function buildItemsFromDraft(draft, categories) {
     return { items, adjustments, singleCurrency: currencies.size === 1 ? [...currencies][0] : null };
 }
 
+// ==================== ПОИСК И ФИЛЬТРЫ ИСТОРИИ ====================
+// Чек показывается, если в нём есть подходящая позиция; подходящие позиции подсвечиваются.
+// Сумма — по итогу чека в рублях. query ищет по названию, оригинальному названию и магазину.
+export function filterReceipts(receipts, { query = '', category = '', minRub = null, maxRub = null } = {}) {
+    const q = query.trim().toLowerCase();
+    const result = [];
+    for (const receipt of receipts) {
+        const totalRub = receipt.items.reduce((s, i) => s + (Number(i.priceRub) || 0), 0);
+        if (minRub !== null && totalRub < minRub) continue;
+        if (maxRub !== null && totalRub > maxRub) continue;
+
+        const shopMatches = q && String(receipt.shop || '').toLowerCase().includes(q);
+        const matchedIds = new Set();
+        for (const item of receipt.items) {
+            const textOk = !q || shopMatches
+                || String(item.name || '').toLowerCase().includes(q)
+                || String(item.originalName || '').toLowerCase().includes(q);
+            const categoryOk = !category || item.category === category;
+            if (textOk && categoryOk) matchedIds.add(item.id);
+        }
+        if (matchedIds.size === 0) continue;
+        // Подсветка нужна только при активном поиске по позициям или категории
+        result.push({ ...receipt, matchedIds: (q && !shopMatches) || category ? matchedIds : null });
+    }
+    return result;
+}
+
 // Обновляет локальный список после сохранения чека. Живая синхронизация (onSnapshot) может
 // успеть добавить новые позиции раньше, чем завершится запись, поэтому убираем всё с теми же id,
 // а также удалённые из чека позиции — иначе позиция показывается дважды
