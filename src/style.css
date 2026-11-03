@@ -1,0 +1,54 @@
+@import "tailwindcss";
+@import "@fortawesome/fontawesome-free/css/all.min.css";
+
+body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+    -webkit-tap-highlight-color: transparent;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+.bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom);
+}
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+/* Предотвращение авто-зума iOS Safari при фокусе на инпутах */
+input, select, textarea {
+    font-size: 16px !important;
+}
+@keyframes slideDown {
+    from { transform: translateY(-120%); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+}
+input[type="date"] {
+    -webkit-appearance: none;
+    appearance: none;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    height: 2.75rem;
+    box-sizing: border-box;
+    padding-top: 0;
+    padding-bottom: 0;
+    line-height: 2.75rem;
+}
+input[type="date"]::-webkit-date-and-time-value {
+    text-align: left;
+    margin: 0;
+    padding: 0;
+    line-height: inherit;
+    min-height: 0;
+}
+input[type="date"]::-webkit-calendar-picker-indicator {
+    margin: 0;
+}
+.toast-animate {
+    animation: slideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
