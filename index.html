@@ -34,8 +34,8 @@
             font-size: 16px !important;
         }
         @keyframes slideDown {
-            from { transform: translate(-50%, -120%); opacity: 0; }
-            to { transform: translate(-50%, 0); opacity: 1; }
+            from { transform: translateY(-120%); opacity: 0; }
+            to   { transform: translateY(0); opacity: 1; }
         }
         .toast-animate {
             animation: slideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -45,7 +45,7 @@
 <body class="bg-slate-100 text-slate-900 antialiased min-h-screen selection:bg-indigo-100 selection:text-indigo-900">
 
     <!-- Контейнер всплывающих уведомлений (Toast) -->
-    <div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-[100] w-11/12 max-w-sm pointer-events-none space-y-2"></div>
+    <div id="toast-container" class="fixed left-1/2 -translate-x-1/2 z-[100] w-11/12 max-w-sm pointer-events-none space-y-2" style="top: calc(env(safe-area-inset-top) + 12px)"></div>
 
     <!-- ==================== ЭКРАН АВТОРИЗАЦИИ ==================== -->
     <div id="auth-screen" class="fixed inset-0 bg-slate-900 z-50 flex items-center justify-center p-4 hidden">
@@ -312,6 +312,9 @@
 
                 <!-- Горизонтальная лента периодов -->
                 <div class="flex gap-1.5 overflow-x-auto no-scrollbar" id="dashboard-period-pills">
+                    <button onclick="setDashboardPeriod('today')" data-period="today" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Сегодня</button>
+                    <button onclick="setDashboardPeriod('week')" data-period="week" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Текущая неделя</button>
+                    <button onclick="setDashboardPeriod('prev_week')" data-period="prev_week" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Прошлая неделя</button>
                     <button onclick="setDashboardPeriod('month')" data-period="month" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-bold bg-indigo-600 text-white transition">Этот месяц</button>
                     <button onclick="setDashboardPeriod('prev_month')" data-period="prev_month" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Прошлый месяц</button>
                     <button onclick="setDashboardPeriod('days30')" data-period="days30" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">30 дней</button>
@@ -677,96 +680,75 @@
         }
 
         // ==================== ВЫЗОВ GEMINI С АВТОСМЕНОЙ МОДЕЛИ ====================
-        async function callGeminiWithModelFallback(basePayload) {
-            const totalModels = GEMINI_MODELS.length;
-            let lastError = null;
-
-            for (let attempt = 0; attempt < totalModels; attempt++) {
-                const activeModel = GEMINI_MODELS[currentModelIndex];
-                const statusTitleEl = document.getElementById('ai-job-status-title');
-                if (statusTitleEl) {
-                    statusTitleEl.innerText = `ИИ (${activeModel.label}) обрабатывает...`;
+        async function requestGemini(model, body) {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 40000);
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model.id}:generateContent?key=${currentUserApiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                    signal: controller.signal
+                });
+                const data = await res.json();
+                if (data.error) {
+                    const e = new Error(`[${model.label}] ${data.error.message || 'Ошибка API'}`);
+                    e.code = data.error.code || res.status;
+                    throw e;
                 }
-
-                const payloadWithFastThinking = {
-                    ...basePayload,
-                    generationConfig: {
-                        temperature: 0.1,
-                        thinkingConfig: { thinkingBudget: 0 }
-                    }
-                };
-
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-                try {
-                    let response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${activeModel.id}:generateContent?key=${currentUserApiKey}`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payloadWithFastThinking),
-                        signal: controller.signal
-                    });
-
-                    let data = await response.json();
-
-                    if (data.error && data.error.code === 400 && JSON.stringify(data.error).includes('thinking')) {
-                        response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${activeModel.id}:generateContent?key=${currentUserApiKey}`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(basePayload),
-                            signal: controller.signal
-                        });
-                        data = await response.json();
-                    }
-
-                    clearTimeout(timeoutId);
-
-                    if (data.error) {
-                        const errCode = data.error.code || response.status;
-                        const errStatus = data.error.status || '';
-                        const errMsg = data.error.message || 'Ошибка API';
-
-                        const isQuotaOrLimit =
-                            errCode === 429 ||
-                            errCode === 503 ||
-                            errCode === 404 ||
-                            errStatus === 'RESOURCE_EXHAUSTED' ||
-                            /quota|rate limit|exhausted|limit|overloaded/i.test(errMsg);
-
-                        if (isQuotaOrLimit && attempt < totalModels - 1) {
-                            const oldModel = activeModel.label;
-                            setAndSaveModelIndex(currentModelIndex + 1);
-                            const newModel = GEMINI_MODELS[currentModelIndex].label;
-                            showToast(`Лимит ${oldModel} исчерпан. Переключено на ${newModel}`, 'warning');
-                            continue;
-                        }
-
-                        throw new Error(`[${activeModel.label}] ${errMsg}`);
-                    }
-
-                    return data;
-                } catch (err) {
-                    clearTimeout(timeoutId);
-                    lastError = err;
-
-                    if (err.name === 'AbortError') {
-                        if (attempt < totalModels - 1) {
-                            const oldModel = activeModel.label;
-                            setAndSaveModelIndex(currentModelIndex + 1);
-                            const newModel = GEMINI_MODELS[currentModelIndex].label;
-                            showToast(`Таймаут ${oldModel}. Переключено на ${newModel}`, 'warning');
-                            continue;
-                        }
-                        throw new Error('Превышено время ожидания ответа от всех моделей (20 сек). Проверьте интернет.');
-                    }
-
-                    if (attempt === totalModels - 1) {
-                        throw err;
-                    }
+                return data;
+            } catch (e) {
+                if (e.name === 'AbortError') {
+                    const te = new Error(`[${model.label}] нет ответа за 40 сек`);
+                    te.code = 'timeout';
+                    throw te;
                 }
+                throw e;
+            } finally {
+                clearTimeout(timeoutId);
             }
-
-            throw lastError || new Error('Не удалось получить ответ от ИИ');
+        }
+        
+        async function callGeminiWithModelFallback(basePayload) {
+            const total = GEMINI_MODELS.length;
+        
+            for (let attempt = 0; attempt < total; attempt++) {
+                const model = GEMINI_MODELS[currentModelIndex];
+                const statusTitleEl = document.getElementById('ai-job-status-title');
+                if (statusTitleEl) statusTitleEl.innerText = `ИИ (${model.label}) обрабатывает...`;
+        
+                // 1) low thinking (Gemini 3 style), 2) bare request if params are rejected
+                const variants = [
+                    { ...basePayload, generationConfig: { thinkingConfig: { thinkingLevel: 'low' } } },
+                    basePayload
+                ];
+        
+                let lastErr = null;
+                for (const body of variants) {
+                    try {
+                        return await requestGemini(model, body);
+                    } catch (e) {
+                        lastErr = e;
+                        if (e.code === 400 && body !== basePayload) continue; // retry without params
+                        break;
+                    }
+                }
+        
+                const msg = lastErr?.message || '';
+                const switchable =
+                    lastErr.code === 'timeout' ||
+                    !lastErr.code || // network error
+                    [400, 404, 429, 500, 503].includes(lastErr.code) ||
+                    /quota|rate limit|exhausted|limit|overloaded/i.test(msg);
+        
+                if (switchable && attempt < total - 1) {
+                    setAndSaveModelIndex(currentModelIndex + 1);
+                    showToast(`${model.label} недоступна. Переключено на ${GEMINI_MODELS[currentModelIndex].label}`, 'warning');
+                    continue;
+                }
+                throw lastErr;
+            }
+            throw new Error('Не удалось получить ответ от ИИ');
         }
 
         // ==================== УПРАВЛЕНИЕ ПАНЕЛЬЮ ИИ-ЗАПРОСА ====================
@@ -1322,12 +1304,23 @@
                 if (period === 'today') {
                     return rawDate === todayStr;
                 }
+                const dow = now.getDay() || 7;
+                const monday = new Date(now);
+                monday.setDate(now.getDate() - dow + 1);
+                monday.setHours(0, 0, 0, 0);
+                const sunday = new Date(monday);
+                sunday.setDate(monday.getDate() + 6);
+                sunday.setHours(23, 59, 59, 999);
+                
                 if (period === 'week') {
-                    const dayOfWeek = now.getDay() || 7;
-                    const monday = new Date(now);
-                    monday.setDate(now.getDate() - dayOfWeek + 1);
-                    monday.setHours(0, 0, 0, 0);
-                    return itemDate >= monday && itemDate <= now;
+                    return itemDate >= monday && itemDate <= sunday;
+                }
+                if (period === 'prev_week') {
+                    const prevMonday = new Date(monday);
+                    prevMonday.setDate(monday.getDate() - 7);
+                    const prevSunday = new Date(monday);
+                    prevSunday.setMilliseconds(-1);
+                    return itemDate >= prevMonday && itemDate <= prevSunday;
                 }
                 if (period === 'month') {
                     return itemDate.getMonth() === now.getMonth() && itemDate.getFullYear() === now.getFullYear();
