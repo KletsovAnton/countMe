@@ -144,7 +144,7 @@
                     <h1 class="text-lg font-black text-slate-900 tracking-tight">AI Кошелек</h1>
                     <button onclick="cycleModelManually()" id="active-model-badge" class="text-[11px] font-bold bg-indigo-50 text-indigo-600 border border-indigo-200/80 px-2.5 py-0.5 rounded-full flex items-center gap-1.5 active:scale-95 transition" title="Нажмите для смены модели ИИ">
                         <span class="w-1.5 h-1.5 rounded-full bg-indigo-600"></span>
-                        <span id="active-model-text">flash 3.8</span>
+                        <span id="active-model-text">flash 3.6</span>
                     </button>
                 </div>
                 <p class="text-[11px] text-slate-400 font-medium" id="user-email-display"></p>
@@ -465,20 +465,19 @@
 
         // ==================== МОДЕЛИ GEMINI И УМНАЯ РОТАЦИЯ ====================
         const GEMINI_MODELS = [
-            { id: 'gemini-3.8-flash', label: 'flash 3.8' },
             { id: 'gemini-3.6-flash', label: 'flash 3.6' },
             { id: 'gemini-3.5-flash-lite', label: 'flash 3.5 lite' }
         ];
 
         // Запоминаем рабочую модель до конца дня, чтобы не тратить время на исчерпанную
-        const savedModelDate = localStorage.getItem('geminiModelDate');
-        const savedModelIdx = Number(localStorage.getItem('geminiModelIdx')) || 0;
+        const savedModelDate = localStorage.getItem('geminiModelDate2');
+        const savedModelIdx = Number(localStorage.getItem('geminiModelIdx2')) || 0;
         let currentModelIndex = (savedModelDate === getTodayDateStr() && savedModelIdx < GEMINI_MODELS.length) ? savedModelIdx : 0;
 
         function setAndSaveModelIndex(idx) {
             currentModelIndex = idx % GEMINI_MODELS.length;
-            localStorage.setItem('geminiModelDate', getTodayDateStr());
-            localStorage.setItem('geminiModelIdx', String(currentModelIndex));
+            localStorage.setItem('geminiModelDate2', getTodayDateStr());
+            localStorage.setItem('geminiModelIdx2', String(currentModelIndex));
             updateModelBadgeUI();
         }
 
