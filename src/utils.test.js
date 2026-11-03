@@ -44,7 +44,7 @@ describe('rates', () => {
     it('throws instead of falling back to 1:1 when the service is down', async () => {
         resetRatesCache();
         const failingFetch = () => Promise.reject(new Error('offline'));
-        await expect(getLatestRates(failingFetch)).rejects.toThrow(RatesUnavailableError);
+        await expect(getLatestRates('2026-11-04', failingFetch)).rejects.toThrow(RatesUnavailableError);
     });
 });
 

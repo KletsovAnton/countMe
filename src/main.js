@@ -5,7 +5,9 @@ import { collection, getDocs, deleteDoc, doc, updateDoc, getDoc, setDoc, query, 
 
 import { auth, db } from './firebase.js';
 import { getTodayDateStr, escapeHtml, formatMoney, formatDateReadable, buildReceiptDateRules } from './utils.js';
-import { getLatestRates, convertToRub } from './rates.js';
+import { getLatestRates, getRatesForDate, convertToRub, SUPPORTED_CURRENCIES } from './rates.js';
+import { normalizeAiResult, receiptTotalInCurrency, isTotalMismatch, legacyReceiptKey, ADJUSTMENT_LABELS } from './receipts.js';
+import { getSchemaVersion, migrateToV2, SCHEMA_VERSION } from './migration.js';
 import { getCurrentModel, setAndSaveModelIndex, setOnModelChange, callGeminiWithModelFallback, extractJsonObject, getResponseText, GEMINI_MODELS } from './gemini.js';
 import { showToast } from './toast.js';
 
@@ -14,6 +16,7 @@ let currentUser = null;
 let currentUserApiKey = "";
 let chartInstance = null;
 let allItems = [];
+let allReceipts = new Map();
 let userCategories = [];
 
 let pendingFile = null;
@@ -235,38 +238,41 @@ async function executeAiJob(job) {
 
         const todayStr = getTodayDateStr();
         const defaultShop = job.type === 'voice' ? "Голосовой ввод" : (job.type === 'text' ? "Текстовый ввод" : "Не указано");
-        const shopName = parsedData.shopName || defaultShop;
-        const receiptDate = parsedData.receiptDate || todayStr;
-        const items = parsedData.items || [];
-        const createdAt = new Date().toISOString();
+        const { receipt, items } = normalizeAiResult(parsedData, {
+            source: job.type,
+            categories: userCategories,
+            fallbackCurrency: job.selectedCurrency,
+            todayStr,
+            defaultShop,
+        });
 
         if (items.length === 0) {
             throw new Error('ИИ не обнаружил ни одной финансовой позиции в запросе.');
         }
 
-        // Без курса валют ничего не сохраняем — иначе суммы в рублях будут неверными
-        const rates = await getLatestRates();
+        // Курс на дату чека; без него ничего не сохраняем — иначе суммы в рублях будут неверными
+        const { date: rateDate, rates } = await getRatesForDate(receipt.receiptDate, todayStr);
+        const createdAt = new Date().toISOString();
 
         const batch = writeBatch(db);
+        const receiptRef = doc(collection(db, `users/${currentUser.uid}/receipts`));
+        const receiptObj = { ...receipt, createdAt };
+        batch.set(receiptRef, receiptObj);
+
         const itemsColRef = collection(db, `users/${currentUser.uid}/items`);
         const newlyAddedItems = [];
 
-        for (let item of items) {
-            const originalPrice = Number(item.price) || 0;
-            const currency = job.type === 'receipt' ? job.selectedCurrency : (item.currency || job.selectedCurrency || 'THB');
-            const priceInRub = convertToRub(originalPrice, currency, rates);
-
+        for (const item of items) {
             const newDocRef = doc(itemsColRef);
             const itemObj = {
-                name: item.name || item.originalName,
-                originalName: item.originalName || item.name,
-                originalPrice: originalPrice,
-                currency: currency,
-                priceRub: priceInRub,
-                category: userCategories.includes(item.category) ? item.category : userCategories[0],
-                shop: shopName,
-                receiptDate: receiptDate,
-                createdAt: createdAt
+                ...item,
+                receiptId: receiptRef.id,
+                priceRub: convertToRub(item.originalPrice, item.currency, rates),
+                rate: rates[item.currency],
+                rateDate,
+                shop: receipt.shop,
+                receiptDate: receipt.receiptDate,
+                createdAt
             };
 
             batch.set(newDocRef, itemObj);
@@ -275,13 +281,18 @@ async function executeAiJob(job) {
 
         await batch.commit();
 
+        allReceipts.set(receiptRef.id, { id: receiptRef.id, ...receiptObj });
         allItems = [...newlyAddedItems, ...allItems];
         initFilters();
         renderDashboard();
         renderList();
 
         closeAiJobPanel();
-        showToast(`Добавлено позиций: ${newlyAddedItems.length} (${shopName})`);
+        const mismatch = isTotalMismatch(receiptTotalInCurrency(newlyAddedItems)?.amount, receipt.total);
+        showToast(`Добавлено позиций: ${newlyAddedItems.length} (${receipt.shop})`);
+        if (mismatch) {
+            showToast(`Сумма позиций не совпадает с итогом чека (${formatMoney(receipt.total)} ${receipt.currency}). Проверьте чек в истории.`, 'warning');
+        }
     } catch (err) {
         showAiJobError(err.message || 'Сбой соединения или перегрузка сервера ИИ.');
     }
@@ -525,23 +536,38 @@ window.confirmReceiptUpload = async function() {
 ${buildReceiptDateRules(todayStr)}
 
 Определи название магазина (если неизвестно — "Не указано").
+
+Валюта (currency): определи по символам (฿, ₫, Rp, ₸, ₽, $, €), языку, стране и адресу на чеке. Допустимые коды: ${SUPPORTED_CURRENCIES.join(', ')}. Если определить невозможно — "${selectedCurrency}".
+
 Для каждого товара укажи:
 1. originalName: название с чека на исходном языке.
 2. name: понятный перевод на русский язык.
-3. price: итоговая цена позиции (число).
-4. category: строго одна из категорий: ${JSON.stringify(userCategories)}.`;
+3. price: цена позиции с учётом количества и скидки на эту строку, но БЕЗ общих сборов чека (число).
+4. category: строго одна из категорий: ${JSON.stringify(userCategories)}.
+
+Сборы и скидки на весь чек (adjustments) — только то, что ДОБАВЛЯЕТСЯ к сумме товаров или ВЫЧИТАЕТСЯ из неё:
+- type: "service" (сервисный сбор), "tax" (налог сверх цен), "tip" (чаевые), "discount" (скидка на чек), "other".
+- amount: положительное число для надбавок, отрицательное для скидок.
+- Строки вида «VAT included» / «в т.ч. НДС», уже входящие в цены, НЕ добавляй.
+
+total: итоговая сумма к оплате, напечатанная на чеке (число), или null, если её нет.`;
 
     if (userNote) {
-        prompt += `\n\nВАЖНОЕ УКАЗАНИЕ ПОЛЬЗОВАТЕЛЯ: "${userNote}". Обязательно учти при разборе!`;
+        prompt += `\n\nВАЖНОЕ УКАЗАНИЕ ПОЛЬЗОВАТЕЛЯ: "${userNote}". Обязательно учти при разборе! Если указание исключает позиции или делит счёт, total должен отражать сумму после применения указания.`;
     }
 
     prompt += `\n\nВерни ответ ТОЛЬКО в формате валидного JSON-объекта:
 {
   "shopName": "Название магазина",
   "receiptDate": "YYYY-MM-DD",
+  "currency": "${selectedCurrency}",
   "items": [
     {"originalName": "...", "name": "...", "price": 45.00, "category": "${userCategories[0]}"}
-  ]
+  ],
+  "adjustments": [
+    {"type": "service", "name": "Service charge 10%", "amount": 4.50}
+  ],
+  "total": 49.50
 }`;
 
     const payload = {
@@ -587,33 +613,126 @@ window.addCategory = async function() {
     showToast(`Категория «${catName}» добавлена`);
 };
 
-async function deleteCategory(catName) {
-    if (userCategories.length <= 1) {
-        alert('Должна остаться хотя бы одна категория');
-        return;
+// Пакетная запись с разбиением: в один batch Firestore помещается до 500 операций
+async function commitInBatches(updates) {
+    for (let i = 0; i < updates.length; i += 450) {
+        const batch = writeBatch(db);
+        updates.slice(i, i + 450).forEach(fn => fn(batch));
+        await batch.commit();
     }
-    const nextList = userCategories.filter(c => c !== catName);
-    if (!await runWrite(() => saveCategories(nextList), 'Не удалось удалить категорию')) return;
+}
 
+// Переносит траты из категорий fromCats в toCat и сохраняет новый список категорий
+async function moveItemsAndSaveCategories(fromCats, toCat, nextList, errorText) {
+    const affected = allItems.filter(i => fromCats.includes(i.category));
+    const ops = affected.map(item => batch => batch.update(doc(db, `users/${currentUser.uid}/items`, item.id), { category: toCat }));
+    const ok = await runWrite(async () => {
+        await commitInBatches(ops);
+        await saveCategories(nextList);
+    }, errorText);
+    if (!ok) return false;
+
+    affected.forEach(item => { item.category = toCat; });
     userCategories = nextList;
     renderCategories();
     initFilters();
+    renderDashboard();
     renderList();
+    return affected.length;
 }
+
+function countItemsInCategory(cat) {
+    return allItems.filter(i => i.category === cat).length;
+}
+
+function getOrphanCategories() {
+    return [...new Set(allItems.map(i => i.category).filter(c => !userCategories.includes(c)))];
+}
+
+function categoryOptions(exclude) {
+    return userCategories.filter(c => c !== exclude).map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+}
+
+function openCategoryModal(cat) {
+    const count = countItemsInCategory(cat);
+    document.getElementById('category-modal-original').value = cat;
+    document.getElementById('category-modal-name').value = cat;
+    document.getElementById('category-modal-count').innerText = count > 0 ? `Трат в категории: ${count}` : 'В категории пока нет трат';
+    document.getElementById('category-modal-target').innerHTML = categoryOptions(cat);
+    document.getElementById('category-modal-move-label').innerText = count > 0
+        ? `При удалении перенести ${count} трат(ы) в:`
+        : 'Категорию можно удалить без переноса трат';
+    document.getElementById('category-modal-target').classList.toggle('hidden', count === 0);
+    document.getElementById('category-modal').classList.remove('hidden');
+}
+
+window.closeCategoryModal = function() {
+    document.getElementById('category-modal').classList.add('hidden');
+};
+
+window.saveCategoryRename = async function() {
+    const oldName = document.getElementById('category-modal-original').value;
+    const newName = document.getElementById('category-modal-name').value.trim();
+    if (!newName || newName === oldName) { closeCategoryModal(); return; }
+    if (userCategories.includes(newName)) {
+        showToast(`Категория «${newName}» уже есть`, 'warning');
+        return;
+    }
+    const nextList = userCategories.map(c => c === oldName ? newName : c);
+    const moved = await moveItemsAndSaveCategories([oldName], newName, nextList, 'Не удалось переименовать категорию');
+    if (moved === false) return;
+    closeCategoryModal();
+    showToast(`Категория переименована: «${oldName}» → «${newName}»`);
+};
+
+window.deleteCategoryFromModal = async function() {
+    const catName = document.getElementById('category-modal-original').value;
+    if (userCategories.length <= 1) {
+        showToast('Должна остаться хотя бы одна категория', 'warning');
+        return;
+    }
+    const target = document.getElementById('category-modal-target').value || userCategories.find(c => c !== catName);
+    const nextList = userCategories.filter(c => c !== catName);
+    const moved = await moveItemsAndSaveCategories([catName], target, nextList, 'Не удалось удалить категорию');
+    if (moved === false) return;
+    closeCategoryModal();
+    showToast(moved > 0 ? `Категория удалена, ${moved} трат(ы) перенесены в «${target}»` : 'Категория удалена');
+};
+
+window.reassignOrphans = async function() {
+    const target = document.getElementById('orphans-target').value;
+    const orphans = getOrphanCategories();
+    if (!target || orphans.length === 0) return;
+    const moved = await moveItemsAndSaveCategories(orphans, target, userCategories, 'Не удалось перенести траты');
+    if (moved === false) return;
+    showToast(`Перенесено трат: ${moved} → «${target}»`);
+};
 
 function renderCategories() {
     const container = document.getElementById('categories-container');
+    const orphansBox = document.getElementById('orphans-box');
+
+    const orphans = getOrphanCategories();
+    const orphanCount = allItems.filter(i => orphans.includes(i.category)).length;
+    if (orphanCount > 0) {
+        document.getElementById('orphans-text').innerText =
+            `${orphanCount} трат(ы) из удалённых категорий (${orphans.join(', ')}). В аналитике они попадают в «Другое».`;
+        document.getElementById('orphans-target').innerHTML = categoryOptions(null);
+        orphansBox.classList.remove('hidden');
+    } else {
+        orphansBox.classList.add('hidden');
+    }
+
     if (userCategories.length === 0) {
         container.innerHTML = `<p class="text-xs text-slate-400">Список пуст. Добавьте свою первую категорию выше.</p>`;
         return;
     }
     container.innerHTML = userCategories.map(cat => `
-        <span class="inline-flex items-center gap-2 bg-slate-100 text-slate-800 text-xs px-3.5 py-2 rounded-2xl font-bold">
+        <button data-action="edit-category" data-cat="${escapeHtml(cat)}" class="inline-flex items-center gap-2 bg-slate-100 hover:bg-indigo-50 text-slate-800 text-xs px-3.5 py-2 rounded-2xl font-bold transition">
             <span>${escapeHtml(cat)}</span>
-            <button data-action="delete-category" data-cat="${escapeHtml(cat)}" class="w-5 h-5 rounded-full bg-slate-200/80 text-slate-500 hover:bg-red-100 hover:text-red-600 flex items-center justify-center transition">
-                <i class="fa-solid fa-xmark text-[10px]"></i>
-            </button>
-        </span>
+            <span class="text-[10px] font-semibold text-slate-400">${countItemsInCategory(cat)}</span>
+            <i class="fa-solid fa-pen text-[9px] text-slate-400"></i>
+        </button>
     `).join('');
 }
 
@@ -627,22 +746,44 @@ async function loadData() {
             userCategories = ['Еда и супермаркеты', 'Кафе и рестораны', 'Транспорт', 'Жилье и быт', 'Развлечения'];
             await saveCategories(userCategories);
         }
-        renderCategories();
-
         const q = query(collection(db, `users/${currentUser.uid}/items`), orderBy('createdAt', 'desc'));
-        const querySnapshot = await getDocs(q);
-        allItems = [];
-        querySnapshot.forEach((docSnap) => {
-            allItems.push({ id: docSnap.id, ...docSnap.data() });
-        });
+        const [itemsSnapshot, receiptsSnapshot] = await Promise.all([
+            getDocs(q),
+            getDocs(collection(db, `users/${currentUser.uid}/receipts`)),
+        ]);
+        allItems = itemsSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+        allReceipts = new Map(receiptsSnapshot.docs.map(docSnap => [docSnap.id, { id: docSnap.id, ...docSnap.data() }]));
     } catch (err) {
         console.error('Ошибка загрузки данных', err);
         showToast(`Не удалось загрузить данные: ${err.message}`, 'error');
     }
 
+    await runMigrationIfNeeded();
+
+    renderCategories();
     initFilters();
     renderDashboard();
     renderList();
+}
+
+// Однократный перевод старых записей на схему с отдельными чеками (с резервной копией)
+async function runMigrationIfNeeded() {
+    try {
+        if (await getSchemaVersion(currentUser.uid) >= SCHEMA_VERSION) return;
+        const hasLegacy = allItems.some(item => !item.receiptId);
+        if (hasLegacy) showToast('Обновляем формат данных… Не закрывайте приложение', 'model');
+
+        await migrateToV2(currentUser.uid, allItems, getTodayDateStr());
+
+        if (hasLegacy) {
+            const receiptsSnapshot = await getDocs(collection(db, `users/${currentUser.uid}/receipts`));
+            allReceipts = new Map(receiptsSnapshot.docs.map(docSnap => [docSnap.id, { id: docSnap.id, ...docSnap.data() }]));
+            showToast('Данные обновлены: суммы пересчитаны по курсу на дату чека, резервная копия сохранена');
+        }
+    } catch (err) {
+        console.error('Ошибка миграции', err);
+        showToast(`Не удалось обновить формат данных, попробуем при следующем входе: ${err.message}`, 'warning');
+    }
 }
 
 // ==================== ДАШБОРД И ФИЛЬТРЫ ====================
@@ -783,7 +924,7 @@ window.renderDashboard = async function() {
     let rubToTargetRate = 1;
     if (targetCurrency !== 'RUB') {
         try {
-            const rates = await getLatestRates();
+            const { rates } = await getLatestRates(getTodayDateStr());
             if (!rates[targetCurrency]) throw new Error(`нет курса ${targetCurrency}`);
             rubToTargetRate = rates[targetCurrency];
         } catch (err) {
@@ -792,6 +933,10 @@ window.renderDashboard = async function() {
             currencySelect.value = 'RUB';
         }
     }
+    // Траты в валюте отображения берутся как есть, без двойной конвертации через рубль
+    const amountInTarget = (item) => item.currency === targetCurrency
+        ? (Number(item.originalPrice) || 0)
+        : (Number(item.priceRub) || 0) * rubToTargetRate;
 
     const filteredItems = filteredByPeriod.filter(item => {
         const key = dashboardMode === 'category'
@@ -800,10 +945,7 @@ window.renderDashboard = async function() {
         return selectedFilterKeys.has(key);
     });
 
-    let totalInTarget = filteredItems.reduce((sum, item) => {
-        const priceRub = Number(item.priceRub) || 0;
-        return sum + (priceRub * rubToTargetRate);
-    }, 0);
+    let totalInTarget = filteredItems.reduce((sum, item) => sum + amountInTarget(item), 0);
 
     document.getElementById('total-sum').innerText = `${formatMoney(totalInTarget)} ${targetCurrency}`;
     document.getElementById('total-count-badge').innerText = `Операций: ${filteredItems.length}`;
@@ -813,8 +955,7 @@ window.renderDashboard = async function() {
         const key = dashboardMode === 'category'
             ? (userCategories.includes(item.category) ? item.category : 'Другое')
             : (item.shop || 'Не указано');
-        const priceInTarget = (Number(item.priceRub) || 0) * rubToTargetRate;
-        statsData[key] = (statsData[key] || 0) + priceInTarget;
+        statsData[key] = (statsData[key] || 0) + amountInTarget(item);
     });
 
     const sortedGroupKeys = Object.keys(statsData).filter(k => statsData[k] > 0).sort((a, b) => statsData[b] - statsData[a]);
@@ -894,8 +1035,7 @@ window.renderDashboard = async function() {
                 groupKey = dateStr.substring(0, 7) + '-01';
             }
 
-            const priceInTarget = (Number(item.priceRub) || 0) * rubToTargetRate;
-            timeGrouped[groupKey] = (timeGrouped[groupKey] || 0) + priceInTarget;
+            timeGrouped[groupKey] = (timeGrouped[groupKey] || 0) + amountInTarget(item);
         });
 
         const sortedKeys = Object.keys(timeGrouped).sort();
@@ -964,21 +1104,52 @@ window.setHistorySort = function(sortMode) {
     renderList();
 };
 
+// Группировка по receiptId; старые записи без receiptId (если миграция ещё не прошла) — по времени загрузки и магазину
 function groupItemsIntoReceipts(items) {
-    let receiptsMap = {};
+    let receiptsMap = new Map();
     items.forEach(item => {
-        const groupKey = `${item.createdAt || item.receiptDate}_${item.shop || 'Не указано'}`;
-        if (!receiptsMap[groupKey]) {
-            receiptsMap[groupKey] = {
-                receiptDate: item.receiptDate,
-                shop: item.shop || 'Не указано',
-                createdAt: item.createdAt || '',
+        const groupKey = item.receiptId || `legacy:${legacyReceiptKey(item)}`;
+        if (!receiptsMap.has(groupKey)) {
+            const stored = item.receiptId ? allReceipts.get(item.receiptId) : null;
+            receiptsMap.set(groupKey, {
+                key: groupKey,
+                receiptId: item.receiptId || null,
+                receiptDate: stored?.receiptDate || item.receiptDate,
+                shop: stored?.shop || item.shop || 'Не указано',
+                createdAt: stored?.createdAt || item.createdAt || '',
+                stored,
                 items: []
-            };
+            });
         }
-        receiptsMap[groupKey].items.push(item);
+        receiptsMap.get(groupKey).items.push(item);
     });
-    return Object.values(receiptsMap);
+    return [...receiptsMap.values()];
+}
+
+function categorySelectOptions(current) {
+    const options = userCategories.map(cat => `<option value="${escapeHtml(cat)}" ${cat === current ? 'selected' : ''}>${escapeHtml(cat)}</option>`);
+    // Категория удалена — показываем её честно, а не подставляем первую из списка
+    if (current && !userCategories.includes(current)) {
+        options.unshift(`<option value="${escapeHtml(current)}" selected disabled>${escapeHtml(current)} (удалена)</option>`);
+    }
+    return options.join('');
+}
+
+function renderAdjustments(receipt) {
+    const adjustments = receipt.stored?.adjustments || [];
+    if (adjustments.length === 0) return '';
+    const currency = receipt.stored.currency || '';
+    return `
+        <div class="bg-amber-50/60 border border-amber-100 rounded-2xl p-3 text-[11px] text-slate-600 space-y-1">
+            <p class="font-bold text-slate-700">Распределено по позициям:</p>
+            ${adjustments.map(adj => `
+                <div class="flex justify-between gap-2">
+                    <span>${escapeHtml(ADJUSTMENT_LABELS[adj.type] || adj.type)} — ${escapeHtml(adj.name)}</span>
+                    <span class="font-bold shrink-0">${adj.amount > 0 ? '+' : ''}${formatMoney(adj.amount)} ${escapeHtml(currency)}</span>
+                </div>
+            `).join('')}
+        </div>
+    `;
 }
 
 function renderList() {
@@ -1008,8 +1179,15 @@ function renderList() {
     listEl.innerHTML = receipts.map((receipt, index) => {
         const receiptNum = receipts.length - index;
         const totalRub = receipt.items.reduce((s, i) => s + (Number(i.priceRub) || 0), 0);
-        const currency = receipt.items[0] ? receipt.items[0].currency : 'RUB';
-        const totalOriginal = receipt.items.reduce((s, i) => s + (Number(i.originalPrice) || 0), 0);
+        const totalOriginal = receiptTotalInCurrency(receipt.items);
+        const mismatch = totalOriginal && receipt.stored?.currency === totalOriginal.currency
+            && isTotalMismatch(totalOriginal.amount, receipt.stored.total);
+        const mainAmount = totalOriginal
+            ? `${formatMoney(totalOriginal.amount)} ${escapeHtml(totalOriginal.currency)}`
+            : `${formatMoney(totalRub)} ₽`;
+        const subAmount = totalOriginal
+            ? (totalOriginal.currency === 'RUB' ? '' : `${formatMoney(totalRub)} ₽`)
+            : 'разные валюты';
 
         return `
             <div class="bg-white rounded-3xl p-4 border border-slate-200/70 shadow-sm">
@@ -1021,15 +1199,16 @@ function renderList() {
                             <div class="flex items-center gap-2 mt-0.5 text-[11px] font-semibold text-slate-400">
                                 <span><i class="fa-regular fa-calendar mr-1"></i>${escapeHtml(formatDateReadable(receipt.receiptDate))}</span>
                                 <span>• ${receipt.items.length} поз.</span>
+                                ${mismatch ? '<span class="text-amber-600" title="Сумма позиций не совпадает с итогом чека"><i class="fa-solid fa-triangle-exclamation"></i></span>' : ''}
                             </div>
                         </div>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
                         <div class="text-right">
-                            <p class="font-black text-slate-900 text-sm">${formatMoney(totalOriginal)} ${escapeHtml(currency)}</p>
-                            <p class="text-[11px] font-semibold text-slate-400">${formatMoney(totalRub)} ₽</p>
+                            <p class="font-black text-slate-900 text-sm">${mainAmount}</p>
+                            <p class="text-[11px] font-semibold text-slate-400">${subAmount}</p>
                         </div>
-                        <button data-action="edit-receipt" data-created-at="${escapeHtml(receipt.createdAt)}" data-shop="${escapeHtml(receipt.shop)}" data-date="${escapeHtml(receipt.receiptDate)}" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 flex items-center justify-center transition" title="Изменить магазин или дату">
+                        <button data-action="edit-receipt" data-key="${escapeHtml(receipt.key)}" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-indigo-50 text-slate-500 hover:text-indigo-600 flex items-center justify-center transition" title="Изменить магазин или дату">
                             <i class="fa-solid fa-pen text-[11px]"></i>
                         </button>
                         <div class="w-6 flex justify-center">
@@ -1039,15 +1218,21 @@ function renderList() {
                 </div>
 
                 <div id="receipt-body-${index}" class="hidden mt-3.5 pt-3 border-t border-slate-100 space-y-2">
+                    ${mismatch ? `
+                        <div class="bg-amber-50 border border-amber-200 text-amber-800 rounded-2xl p-3 text-[11px] font-semibold">
+                            <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+                            Сумма позиций (${formatMoney(totalOriginal.amount)}) не совпадает с итогом чека (${formatMoney(receipt.stored.total)} ${escapeHtml(receipt.stored.currency)}). Возможно, ИИ пропустил или неверно прочитал позицию.
+                        </div>` : ''}
                     ${receipt.items.map(item => `
                         <div class="flex items-center justify-between bg-slate-50 p-3 rounded-2xl text-xs border border-slate-200/60">
                             <div class="flex-1 pr-2 min-w-0">
                                 <p class="font-bold text-slate-800 break-words">${escapeHtml(item.name)} <span class="text-[11px] text-slate-400 font-normal">(${escapeHtml(item.originalName || item.name)})</span></p>
                                 <div class="flex items-center flex-wrap gap-2 mt-2">
                                     <span class="font-extrabold text-slate-900">${formatMoney(item.originalPrice)} ${escapeHtml(item.currency)}</span>
-                                    <span class="text-[11px] text-slate-400">(${formatMoney(item.priceRub)} ₽)</span>
+                                    ${item.basePrice !== undefined && item.basePrice !== item.originalPrice ? `<span class="text-[11px] text-slate-400 line-through">${formatMoney(item.basePrice)}</span>` : ''}
+                                    ${item.currency !== 'RUB' ? `<span class="text-[11px] text-slate-400">(${formatMoney(item.priceRub)} ₽)</span>` : ''}
                                     <select data-action="update-category" data-id="${escapeHtml(item.id)}" class="h-7 text-xs font-bold bg-white border border-slate-200 rounded-xl px-2.5 text-slate-700 focus:outline-none">
-                                        ${userCategories.map(cat => `<option value="${escapeHtml(cat)}" ${cat === item.category ? 'selected' : ''}>${escapeHtml(cat)}</option>`).join('')}
+                                        ${categorySelectOptions(item.category)}
                                     </select>
                                 </div>
                             </div>
@@ -1056,6 +1241,8 @@ function renderList() {
                             </button>
                         </div>
                     `).join('')}
+                    ${renderAdjustments(receipt)}
+                    ${receipt.items[0]?.rateDate ? `<p class="text-[10px] text-slate-400 text-right">Курс на ${escapeHtml(formatDateReadable(receipt.items[0].rateDate))}</p>` : ''}
                 </div>
             </div>
         `;
@@ -1074,11 +1261,18 @@ function toggleReceipt(index) {
     }
 }
 
+function getReceiptItems(key) {
+    return allItems.filter(item => (item.receiptId || `legacy:${legacyReceiptKey(item)}`) === key);
+}
+
 // Модальное окно редактирования метаданных чека
-function openEditReceiptModal(createdAt, currentShop, currentDate) {
-    document.getElementById('edit-receipt-created-at').value = createdAt;
-    document.getElementById('edit-receipt-shop').value = currentShop;
-    document.getElementById('edit-receipt-date').value = currentDate;
+function openEditReceiptModal(key) {
+    const receiptItems = getReceiptItems(key);
+    if (receiptItems.length === 0) return;
+    const [receipt] = groupItemsIntoReceipts(receiptItems);
+    document.getElementById('edit-receipt-key').value = key;
+    document.getElementById('edit-receipt-shop').value = receipt.shop;
+    document.getElementById('edit-receipt-date').value = receipt.receiptDate;
     document.getElementById('edit-receipt-modal').classList.remove('hidden');
 }
 
@@ -1087,33 +1281,62 @@ window.closeEditReceiptModal = function() {
 };
 
 window.saveReceiptMetadata = async function() {
-    const createdAt = document.getElementById('edit-receipt-created-at').value;
+    const key = document.getElementById('edit-receipt-key').value;
     const newShop = document.getElementById('edit-receipt-shop').value.trim() || "Не указано";
     const newDate = document.getElementById('edit-receipt-date').value;
     if (!newDate) return;
 
-    const targetItems = allItems.filter(item => item.createdAt === createdAt);
-    const batch = writeBatch(db);
+    const targetItems = getReceiptItems(key);
+    if (targetItems.length === 0) return;
+    const receiptId = targetItems[0].receiptId;
+    const dateChanged = targetItems[0].receiptDate !== newDate;
 
-    // Суммы не пересчитываются: правка магазина или даты не должна менять расходы
-    for (let item of targetItems) {
-        batch.update(doc(db, `users/${currentUser.uid}/items`, item.id), {
-            shop: newShop,
-            receiptDate: newDate
-        });
+    // Правка магазина не трогает суммы; при исправлении даты берётся курс на новую дату чека
+    let rateInfo = null;
+    if (dateChanged) {
+        try {
+            rateInfo = await getRatesForDate(newDate, getTodayDateStr());
+        } catch (err) {
+            showToast(err.message, 'error');
+            return;
+        }
+    }
+
+    const itemUpdates = new Map();
+    try {
+        for (const item of targetItems) {
+            const fields = { shop: newShop, receiptDate: newDate };
+            if (rateInfo) {
+                fields.priceRub = convertToRub(Number(item.originalPrice) || 0, item.currency, rateInfo.rates);
+                fields.rate = rateInfo.rates[item.currency];
+                fields.rateDate = rateInfo.date;
+            }
+            itemUpdates.set(item, fields);
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+        return;
+    }
+
+    const batch = writeBatch(db);
+    for (const [item, fields] of itemUpdates) {
+        batch.update(doc(db, `users/${currentUser.uid}/items`, item.id), fields);
+    }
+    if (receiptId && allReceipts.has(receiptId)) {
+        batch.update(doc(db, `users/${currentUser.uid}/receipts`, receiptId), { shop: newShop, receiptDate: newDate });
     }
 
     if (!await runWrite(() => batch.commit(), 'Не удалось обновить чек')) return;
 
-    for (let item of targetItems) {
-        item.shop = newShop;
-        item.receiptDate = newDate;
+    for (const [item, fields] of itemUpdates) Object.assign(item, fields);
+    if (receiptId && allReceipts.has(receiptId)) {
+        Object.assign(allReceipts.get(receiptId), { shop: newShop, receiptDate: newDate });
     }
     closeEditReceiptModal();
     initFilters();
     renderDashboard();
     renderList();
-    showToast('Данные чека обновлены');
+    showToast(dateChanged ? 'Чек обновлён, суммы пересчитаны по курсу на новую дату' : 'Данные чека обновлены');
 };
 
 async function updateCategory(id, newCat, selectEl) {
@@ -1128,15 +1351,29 @@ async function updateCategory(id, newCat, selectEl) {
     }
     if (target) target.category = newCat;
     renderDashboard();
+    renderCategories();
     showToast('Категория изменена');
 }
 
 async function deleteItem(id) {
-    if (!await runWrite(() => deleteDoc(doc(db, `users/${currentUser.uid}/items`, id)), 'Не удалось удалить позицию')) return;
+    const item = allItems.find(i => i.id === id);
+    if (!item) return;
+    // Последняя позиция чека — удаляем и сам чек, чтобы не оставались пустые записи
+    const isLastInReceipt = item.receiptId && allItems.filter(i => i.receiptId === item.receiptId).length === 1;
+
+    const batch = writeBatch(db);
+    batch.delete(doc(db, `users/${currentUser.uid}/items`, id));
+    if (isLastInReceipt && allReceipts.has(item.receiptId)) {
+        batch.delete(doc(db, `users/${currentUser.uid}/receipts`, item.receiptId));
+    }
+    if (!await runWrite(() => batch.commit(), 'Не удалось удалить позицию')) return;
+
     allItems = allItems.filter(i => i.id !== id);
+    if (isLastInReceipt) allReceipts.delete(item.receiptId);
     initFilters();
     renderDashboard();
     renderList();
+    renderCategories();
     showToast('Позиция удалена');
 }
 
@@ -1147,15 +1384,14 @@ document.addEventListener('click', (e) => {
     if (!el) return;
     const { action } = el.dataset;
 
-    if (action === 'delete-category') {
-        deleteCategory(el.dataset.cat);
+    if (action === 'edit-category') {
+        openCategoryModal(el.dataset.cat);
     } else if (action === 'toggle-filter') {
         toggleFilterChip(el.dataset.key);
     } else if (action === 'toggle-receipt') {
         toggleReceipt(el.dataset.index);
     } else if (action === 'edit-receipt') {
-        e.stopPropagation();
-        openEditReceiptModal(el.dataset.createdAt, el.dataset.shop, el.dataset.date);
+        openEditReceiptModal(el.dataset.key);
     } else if (action === 'delete-item') {
         deleteItem(el.dataset.id);
     }

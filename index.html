@@ -82,7 +82,7 @@
                     <i class="fa-solid fa-xmark text-sm"></i>
                 </button>
             </div>
-            <input type="hidden" id="edit-receipt-created-at">
+            <input type="hidden" id="edit-receipt-key">
             <div class="space-y-3.5 mb-5">
                 <div>
                     <label class="block text-xs font-bold text-slate-500 mb-1">Магазин или место</label>
@@ -96,6 +96,32 @@
             <div class="grid grid-cols-2 gap-2.5">
                 <button onclick="closeEditReceiptModal()" class="h-11 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl transition text-xs">Отмена</button>
                 <button onclick="saveReceiptMetadata()" class="h-11 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl transition text-xs shadow-md shadow-indigo-600/20">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== МОДАЛКА КАТЕГОРИИ ==================== -->
+    <div id="category-modal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl p-5 w-full max-w-sm shadow-2xl">
+            <div class="flex justify-between items-center mb-1">
+                <h3 class="font-extrabold text-slate-900 text-base">Категория</h3>
+                <button onclick="closeCategoryModal()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+            <p id="category-modal-count" class="text-xs text-slate-400 mb-4"></p>
+            <input type="hidden" id="category-modal-original">
+            <label class="block text-xs font-bold text-slate-500 mb-1">Название</label>
+            <div class="flex gap-2 mb-5">
+                <input type="text" id="category-modal-name" onkeydown="if(event.key === 'Enter') saveCategoryRename()" class="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-2xl px-3.5 h-11 focus:outline-none focus:bg-white focus:border-indigo-500">
+                <button onclick="saveCategoryRename()" class="h-11 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-2xl transition text-xs px-4 shrink-0">Сохранить</button>
+            </div>
+            <div class="border-t border-slate-100 pt-4">
+                <p id="category-modal-move-label" class="text-xs font-bold text-slate-500 mb-1.5"></p>
+                <select id="category-modal-target" class="w-full h-11 bg-slate-50 border border-slate-200 rounded-2xl px-3 mb-2.5 text-sm font-semibold text-slate-700 focus:outline-none"></select>
+                <button onclick="deleteCategoryFromModal()" class="w-full h-11 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-2xl transition text-xs">
+                    <i class="fa-solid fa-trash-can mr-1"></i> Удалить категорию
+                </button>
             </div>
         </div>
     </div>
@@ -373,6 +399,16 @@
                 </div>
 
                 <div id="categories-container" class="flex flex-wrap gap-2"></div>
+                <p class="text-[11px] text-slate-400 mt-3">Нажмите на категорию, чтобы переименовать или удалить её.</p>
+            </div>
+
+            <!-- Траты из удалённых категорий -->
+            <div id="orphans-box" class="bg-amber-50 rounded-3xl p-5 border border-amber-200 hidden">
+                <p class="text-xs font-bold text-amber-800 mb-3"><i class="fa-solid fa-triangle-exclamation mr-1"></i><span id="orphans-text"></span></p>
+                <div class="flex gap-2">
+                    <select id="orphans-target" class="flex-1 min-w-0 h-11 bg-white border border-amber-200 rounded-2xl px-3 text-sm font-semibold text-slate-700 focus:outline-none"></select>
+                    <button onclick="reassignOrphans()" class="h-11 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-4 rounded-2xl transition shrink-0">Перенести</button>
+                </div>
             </div>
         </div>
     </div>
