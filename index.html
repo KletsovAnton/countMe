@@ -60,15 +60,18 @@
     <div id="receipt-modal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
         <div class="bg-white rounded-3xl p-5 w-full max-w-sm shadow-2xl max-h-[90vh] overflow-y-auto">
             <div class="flex justify-between items-center mb-3">
-                <h3 class="font-extrabold text-slate-900 text-base">Проверка фото чека</h3>
+                <h3 class="font-extrabold text-slate-900 text-base">Фото и файлы чека</h3>
                 <button onclick="cancelReceiptUpload()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center">
                     <i class="fa-solid fa-xmark text-sm"></i>
                 </button>
             </div>
             
-            <div class="mb-3.5 bg-slate-100 rounded-2xl overflow-hidden h-52 flex items-center justify-center border border-slate-200/80">
-                <img id="modal-img-preview" src="" alt="Чек" class="max-h-full object-contain">
-            </div>
+            <div id="modal-files" class="grid grid-cols-3 gap-2 mb-2"></div>
+            <label class="flex items-center justify-center w-full h-10 mb-1.5 border border-dashed border-slate-300 hover:border-indigo-400 hover:text-indigo-600 text-slate-500 rounded-2xl text-xs font-bold transition cursor-pointer gap-1.5">
+                <i class="fa-solid fa-plus"></i> Добавить ещё фото или PDF
+                <input type="file" accept="image/*,application/pdf" multiple class="hidden" onchange="handleFileSelected(event, true)">
+            </label>
+            <p class="text-[11px] text-slate-400 mb-3.5">Длинный чек можно снять на несколько фото по частям — ИИ соберёт их в один чек. До 5 файлов.</p>
 
             <div class="mb-4">
                 <label class="block text-xs font-bold text-slate-600 mb-1.5">Инструкция для ИИ (необязательно):</label>
@@ -152,6 +155,28 @@
             <div class="grid grid-cols-2 gap-2.5 max-w-md mx-auto">
                 <button id="editor-cancel-btn" class="h-12 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl transition text-sm">Отмена</button>
                 <button id="editor-save-btn" class="h-12 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold rounded-2xl transition text-sm shadow-md shadow-indigo-600/20"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== МОДАЛКА ЭКСПОРТА ==================== -->
+    <div id="export-modal" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl p-5 w-full max-w-sm shadow-2xl">
+            <div class="flex justify-between items-center mb-1">
+                <h3 class="font-extrabold text-slate-900 text-base">Экспорт трат</h3>
+                <button onclick="closeExportModal()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+            <p class="text-xs text-slate-400 mb-4">Одна строка — одна позиция: дата, магазин, категория, сумма в валюте чека и в рублях.</p>
+            <div class="flex bg-slate-100 p-1 rounded-xl mb-4">
+                <button id="export-scope-filtered" onclick="setExportScope('filtered')" class="flex-1 h-8 text-xs font-bold rounded-lg bg-white text-slate-900 shadow-sm transition">Как в истории</button>
+                <button id="export-scope-all" onclick="setExportScope('all')" class="flex-1 h-8 text-xs font-semibold rounded-lg text-slate-500 transition">Все траты</button>
+            </div>
+            <p id="export-count" class="text-sm font-extrabold text-slate-900 mb-4"></p>
+            <div class="grid grid-cols-2 gap-2.5">
+                <button onclick="runExport('csv')" class="h-11 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl transition text-xs"><i class="fa-solid fa-file-csv mr-1"></i> CSV</button>
+                <button onclick="runExport('xlsx')" class="h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl transition text-xs"><i class="fa-solid fa-file-excel mr-1"></i> Excel</button>
             </div>
         </div>
     </div>
@@ -255,8 +280,8 @@
 
                 <label class="flex items-center justify-center w-full h-12 bg-white text-indigo-700 hover:bg-indigo-50 active:scale-[0.99] font-extrabold rounded-2xl cursor-pointer transition shadow-sm text-sm gap-2">
                     <i class="fa-solid fa-camera"></i>
-                    <span>Сфотографировать / Галерея</span>
-                    <input type="file" accept="image/*" id="receipt-input" class="hidden" onchange="handleFileSelected(event)">
+                    <span>Фото, галерея или PDF</span>
+                    <input type="file" accept="image/*,application/pdf" multiple id="receipt-input" class="hidden" onchange="handleFileSelected(event)">
                 </label>
             </div>
 
@@ -428,6 +453,25 @@
                 <h3 class="font-extrabold text-slate-800 text-xs uppercase tracking-wider mb-3.5">Детализация расходов</h3>
                 <div id="dashboard-breakdown" class="space-y-3"></div>
             </div>
+
+            <!-- ИИ-ассистент по тратам -->
+            <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/70">
+                <div class="flex items-center justify-between mb-1">
+                    <h3 class="font-extrabold text-slate-800 text-xs uppercase tracking-wider"><i class="fa-solid fa-wand-magic-sparkles text-indigo-500 mr-1"></i>Спросить ИИ</h3>
+                    <button id="chat-clear-btn" onclick="clearChat()" class="text-[11px] font-bold text-slate-400 hover:text-slate-600 hidden">Очистить</button>
+                </div>
+                <p class="text-[11px] text-slate-400 mb-3">ИИ видит ваши траты за последние 12 месяцев и отвечает по ним.</p>
+                <button id="insights-btn" onclick="requestMonthlyInsights()" class="w-full h-10 mb-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-2xl text-xs font-bold transition">
+                    <i class="fa-solid fa-chart-line mr-1"></i> Итоги месяца и советы
+                </button>
+                <div id="chat-log" class="space-y-2.5 mb-3"></div>
+                <div class="flex gap-2">
+                    <input type="text" id="chat-input" onkeydown="if(event.key === 'Enter') sendChatMessage()" placeholder="Сколько ушло на кафе в октябре?" class="flex-1 min-w-0 h-11 bg-slate-50 border border-slate-200 rounded-2xl px-3.5 focus:outline-none focus:bg-white focus:border-indigo-500">
+                    <button id="chat-send-btn" onclick="sendChatMessage()" class="w-11 h-11 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-2xl flex items-center justify-center shrink-0" title="Отправить">
+                        <i class="fa-solid fa-paper-plane text-sm"></i>
+                    </button>
+                </div>
+            </div>
         </div>
 
         <!-- ==================== РАЗДЕЛ 3: ИСТОРИЯ ЧЕКОВ ==================== -->
@@ -435,8 +479,27 @@
             <div class="bg-white rounded-3xl p-4 shadow-sm border border-slate-200/70 space-y-3">
                 <div class="flex justify-between items-center">
                     <h3 class="font-extrabold text-slate-900 text-sm">История записей</h3>
-                    <span id="history-receipts-count" class="text-xs font-extrabold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-xl">0 чеков</span>
+                    <div class="flex items-center gap-2">
+                        <span id="history-receipts-count" class="text-xs font-extrabold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-xl">0 чеков</span>
+                        <button onclick="openExportModal()" class="h-7 px-2.5 rounded-xl bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 text-xs font-bold transition" title="Экспорт в CSV или Excel">
+                            <i class="fa-solid fa-file-arrow-down mr-1"></i>Экспорт
+                        </button>
+                    </div>
                 </div>
+
+                <!-- Поиск и фильтры -->
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                    <input type="search" id="history-search" oninput="onHistoryFilterChange()" placeholder="Поиск: товар или магазин" class="w-full h-10 bg-slate-50 border border-slate-200 rounded-2xl pl-9 pr-3 focus:outline-none focus:bg-white focus:border-indigo-500">
+                </div>
+                <div class="flex gap-2">
+                    <select id="history-category" onchange="onHistoryFilterChange()" class="flex-1 min-w-0 h-9 bg-slate-50 border border-slate-200 rounded-xl px-2 text-xs font-bold text-slate-700 focus:outline-none"></select>
+                    <input type="text" id="history-min" inputmode="decimal" oninput="onHistoryFilterChange()" placeholder="от ₽" class="w-[72px] h-9 bg-slate-50 border border-slate-200 rounded-xl px-2.5 text-xs font-bold focus:outline-none focus:border-indigo-500">
+                    <input type="text" id="history-max" inputmode="decimal" oninput="onHistoryFilterChange()" placeholder="до ₽" class="w-[72px] h-9 bg-slate-50 border border-slate-200 rounded-xl px-2.5 text-xs font-bold focus:outline-none focus:border-indigo-500">
+                </div>
+                <button id="history-filters-reset" onclick="resetHistoryFilters()" class="hidden text-xs font-bold text-indigo-600">
+                    <i class="fa-solid fa-xmark mr-1"></i>Сбросить поиск и фильтры
+                </button>
 
                 <!-- Период чеков -->
                 <div class="flex gap-1.5 overflow-x-auto no-scrollbar" id="history-period-pills">
