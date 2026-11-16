@@ -37,6 +37,7 @@
             <button id="auth-submit-btn" onclick="handleAuth()" class="w-full h-12 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] disabled:opacity-60 text-white font-bold rounded-2xl transition shadow-md shadow-indigo-600/20 text-sm">
                 Войти
             </button>
+            <p class="app-version text-[10px] font-semibold text-slate-300 text-center mt-4"></p>
         </div>
     </div>
 
@@ -71,6 +72,9 @@
                 <i class="fa-solid fa-plus"></i> Добавить ещё фото или PDF
                 <input type="file" accept="image/*,application/pdf" multiple class="hidden" onchange="handleFileSelected(event, true)">
             </label>
+            <button onclick="pasteReceiptFromClipboard()" class="flex items-center justify-center w-full h-10 mb-1.5 bg-slate-50 hover:bg-indigo-50 hover:text-indigo-600 text-slate-500 rounded-2xl text-xs font-bold transition gap-1.5">
+                <i class="fa-solid fa-paste"></i> Вставить из буфера
+            </button>
             <p class="text-[11px] text-slate-400 mb-3.5">Длинный чек можно снять на несколько фото по частям — ИИ соберёт их в один чек. До 5 файлов.</p>
 
             <div class="mb-4">
@@ -234,6 +238,7 @@
                     </button>
                 </div>
                 <p class="text-[11px] text-slate-400 font-medium" id="user-email-display"></p>
+                <p class="app-version text-[10px] font-semibold text-slate-300 mt-0.5"></p>
             </div>
             <div class="flex items-center gap-2">
                 <button onclick="openSettings()" class="w-9 h-9 rounded-2xl bg-white border border-slate-200/70 shadow-sm flex items-center justify-center text-slate-600 hover:text-indigo-600 active:scale-95 transition" title="Ключ API">
@@ -283,6 +288,10 @@
                     <span>Фото, галерея или PDF</span>
                     <input type="file" accept="image/*,application/pdf" multiple id="receipt-input" class="hidden" onchange="handleFileSelected(event)">
                 </label>
+                <button onclick="pasteReceiptFromClipboard()" class="mt-2 flex items-center justify-center w-full h-11 bg-white/15 hover:bg-white/25 text-white active:scale-[0.99] font-bold rounded-2xl transition text-xs gap-2 border border-white/25">
+                    <i class="fa-solid fa-paste"></i>
+                    <span>Вставить скриншот из буфера</span>
+                </button>
             </div>
 
             <!-- Карточка 2: Быстрый ввод (Голос и Текст с единой дизайн-системой кнопок) -->
@@ -384,27 +393,46 @@
             
             <!-- Карточка итогов и фильтров периода -->
             <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/70">
-                <div class="flex justify-between items-start mb-4">
-                    <div>
+                <div class="flex justify-between items-start gap-3 mb-4">
+                    <div class="min-w-0">
                         <span class="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 block mb-0.5">Итого расходов</span>
-                        <span id="total-sum" class="text-2xl font-black text-slate-900 tracking-tight">0.00 RUB</span>
+                        <span id="total-sum" class="text-2xl font-black text-slate-900 tracking-tight break-words">0.00 RUB</span>
                         <span id="total-count-badge" class="block text-[11px] font-semibold text-slate-400 mt-0.5">Операций: 0</span>
                         <span id="dashboard-pending-note" class="block text-[11px] font-semibold text-amber-600 mt-1 hidden"></span>
                     </div>
-                    <select id="dashboard-currency" onchange="renderDashboard()" class="h-9 text-xs font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200/80 rounded-xl px-3 focus:outline-none cursor-pointer">
-                        <option value="RUB" selected>RUB ₽</option>
-                        <option value="THB">THB ฿</option>
-                        <option value="USD">USD $</option>
-                        <option value="EUR">EUR €</option>
-                        <option value="VND">VND ₫</option>
-                        <option value="IDR">IDR Rp</option>
-                        <option value="KZT">KZT ₸</option>
-                    </select>
+                    <div class="flex flex-col items-end gap-2 shrink-0">
+                        <label class="flex flex-col items-end gap-0.5">
+                            <span class="text-[10px] font-bold text-slate-400">Валюта отображения</span>
+                            <select id="dashboard-currency" onchange="renderDashboard()" class="h-9 text-xs font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200/80 rounded-xl px-3 focus:outline-none cursor-pointer">
+                                <option value="RUB" selected>RUB ₽</option>
+                                <option value="THB">THB ฿</option>
+                                <option value="USD">USD $</option>
+                                <option value="EUR">EUR €</option>
+                                <option value="VND">VND ₫</option>
+                                <option value="IDR">IDR Rp</option>
+                                <option value="KZT">KZT ₸</option>
+                            </select>
+                        </label>
+                        <label class="flex flex-col items-end gap-0.5">
+                            <span class="text-[10px] font-bold text-slate-400">Валюта списания</span>
+                            <select id="dashboard-charge-currency" onchange="renderDashboard()" class="h-9 text-xs font-bold bg-slate-100 text-slate-700 border-none rounded-xl px-3 focus:outline-none cursor-pointer">
+                                <option value="" selected>Все валюты</option>
+                                <option value="RUB">RUB ₽</option>
+                                <option value="THB">THB ฿</option>
+                                <option value="USD">USD $</option>
+                                <option value="EUR">EUR €</option>
+                                <option value="VND">VND ₫</option>
+                                <option value="IDR">IDR Rp</option>
+                                <option value="KZT">KZT ₸</option>
+                            </select>
+                        </label>
+                    </div>
                 </div>
 
                 <!-- Горизонтальная лента периодов -->
                 <div class="flex gap-1.5 overflow-x-auto no-scrollbar" id="dashboard-period-pills">
                     <button onclick="setDashboardPeriod('today')" data-period="today" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Сегодня</button>
+                    <button onclick="setDashboardPeriod('yesterday')" data-period="yesterday" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Вчера</button>
                     <button onclick="setDashboardPeriod('week')" data-period="week" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Текущая неделя</button>
                     <button onclick="setDashboardPeriod('prev_week')" data-period="prev_week" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Прошлая неделя</button>
                     <button onclick="setDashboardPeriod('month')" data-period="month" class="dash-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-bold bg-indigo-600 text-white transition">Этот месяц</button>
@@ -450,7 +478,8 @@
 
             <!-- Детализация с прогресс-барами -->
             <div class="bg-white rounded-3xl p-5 shadow-sm border border-slate-200/70">
-                <h3 class="font-extrabold text-slate-800 text-xs uppercase tracking-wider mb-3.5">Детализация расходов</h3>
+                <h3 class="font-extrabold text-slate-800 text-xs uppercase tracking-wider mb-1">Детализация расходов</h3>
+                <p class="text-[11px] text-slate-400 mb-3.5">Нажмите на строку или сектор графика, чтобы увидеть траты</p>
                 <div id="dashboard-breakdown" class="space-y-3"></div>
             </div>
 
@@ -480,7 +509,7 @@
                 <div class="flex justify-between items-center">
                     <h3 class="font-extrabold text-slate-900 text-sm">История записей</h3>
                     <div class="flex items-center gap-2">
-                        <span id="history-receipts-count" class="text-xs font-extrabold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-xl">0 чеков</span>
+                        <span id="history-receipts-count" class="text-xs font-extrabold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-xl">чеков: 0</span>
                         <button onclick="openExportModal()" class="h-7 px-2.5 rounded-xl bg-slate-100 hover:bg-indigo-50 text-slate-600 hover:text-indigo-600 text-xs font-bold transition" title="Экспорт в CSV или Excel">
                             <i class="fa-solid fa-file-arrow-down mr-1"></i>Экспорт
                         </button>
@@ -505,6 +534,7 @@
                 <div class="flex gap-1.5 overflow-x-auto no-scrollbar" id="history-period-pills">
                     <button onclick="setHistoryPeriod('all')" data-hperiod="all" class="hist-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-bold bg-indigo-600 text-white transition">Всё время</button>
                     <button onclick="setHistoryPeriod('today')" data-hperiod="today" class="hist-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Сегодня</button>
+                    <button onclick="setHistoryPeriod('yesterday')" data-hperiod="yesterday" class="hist-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Вчера</button>
                     <button onclick="setHistoryPeriod('week')" data-hperiod="week" class="hist-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Неделя</button>
                     <button onclick="setHistoryPeriod('month')" data-hperiod="month" class="hist-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Месяц</button>
                     <button onclick="setHistoryPeriod('prev_month')" data-hperiod="prev_month" class="hist-period-btn shrink-0 px-3.5 h-8 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 transition">Прошлый мес.</button>

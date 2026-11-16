@@ -1,9 +1,22 @@
 import { defineConfig } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+
+// Версия из package.json и короткий хеш коммита — видно, какая сборка открыта на телефоне
+const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+let commit = '';
+try {
+    commit = execSync('git rev-parse --short HEAD', { cwd: new URL('.', import.meta.url), stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+} catch { /* сборка вне git-репозитория — показываем только версию */ }
 
 export default defineConfig({
     base: '/countMe/',
+    define: {
+        __APP_VERSION__: JSON.stringify(version),
+        __APP_COMMIT__: JSON.stringify(commit),
+    },
     plugins: [
         tailwindcss(),
         // Установка на экран «Домой» и запуск без сети: оболочка приложения кэшируется сервис-воркером,

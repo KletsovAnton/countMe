@@ -53,3 +53,13 @@ describe('extractJsonObject', () => {
         expect(extractJsonObject('Вот: ```json\n{"a":1}\n```')).toEqual({ a: 1 });
     });
 });
+
+import { getYesterdayDateStr } from './utils.js';
+
+describe('getYesterdayDateStr', () => {
+    it('steps back one calendar day across month and year boundaries', () => {
+        expect(getYesterdayDateStr(new Date(2026, 10, 16, 0, 30))).toBe('2026-11-15');
+        expect(getYesterdayDateStr(new Date(2026, 2, 1, 12))).toBe('2026-02-28');
+        expect(getYesterdayDateStr(new Date(2027, 0, 1, 9))).toBe('2026-12-31');
+    });
+});
