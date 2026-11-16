@@ -1445,23 +1445,32 @@ window.renderDashboard = async function() {
                     data: dataVals,
                     backgroundColor: bgColors,
                     borderWidth: 2,
-                    borderColor: '#ffffff'
+                    borderColor: '#ffffff',
+                    hoverOffset: sortedGroupKeys.length > 0 ? 8 : 0
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 cutout: '68%',
-                plugins: { legend: { display: false } },
-                // Нажатие на сектор раскрывает траты этой группы в детализации
-                onClick: (_event, elements) => {
-                    if (elements.length === 0 || sortedGroupKeys.length === 0) return;
-                    const key = sortedGroupKeys[elements[0].index];
-                    expandedBreakdownKeys.add(key);
-                    renderDashboard().then(() => {
-                        const row = [...document.querySelectorAll('[data-breakdown-key]')].find(el => el.dataset.breakdownKey === key);
-                        row?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    });
+                layout: { padding: 8 },
+                plugins: {
+                    legend: { display: false },
+                    // Нажатие на сектор показывает подсказку: название группы, сумма и доля
+                    tooltip: {
+                        enabled: sortedGroupKeys.length > 0,
+                        padding: 10,
+                        boxPadding: 4,
+                        titleFont: { size: 12, weight: 'bold' },
+                        bodyFont: { size: 12 },
+                        callbacks: {
+                            title: (items) => items[0]?.label ?? '',
+                            label: (ctx) => {
+                                const percent = totalInTarget > 0 ? Math.round((ctx.parsed / totalInTarget) * 100) : 0;
+                                return `${formatMoney(ctx.parsed)} ${targetCurrency} · ${percent}%`;
+                            },
+                        },
+                    },
                 },
                 onHover: (event, elements) => {
                     event.native.target.style.cursor = elements.length ? 'pointer' : 'default';
