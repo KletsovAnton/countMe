@@ -4,7 +4,7 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, on
 import { collection, doc, updateDoc, getDoc, setDoc, query, orderBy, writeBatch, onSnapshot } from 'firebase/firestore';
 
 import { auth, db } from './firebase.js';
-import { getTodayDateStr, escapeHtml, formatMoney, formatDateReadable, buildReceiptDateRules, authErrorMessage, formatDuration, selectedKeys } from './utils.js';
+import { getTodayDateStr, getYesterdayDateStr, escapeHtml, formatMoney, formatDateReadable, buildReceiptDateRules, authErrorMessage, formatDuration, selectedKeys } from './utils.js';
 import { getLatestRates, getRatesForDate, convertToRub, getCachedRates, approximateRub, SUPPORTED_CURRENCIES } from './rates.js';
 import { normalizeAiResult, receiptTotalInCurrency, isTotalMismatch, legacyReceiptKey, ADJUSTMENT_LABELS, draftFromAi, draftFromReceipt, emptyDraft, buildItemsFromDraft, filterReceipts, mergeSavedItems } from './receipts.js';
 import { initEditor, openEditor } from './editor.js';
@@ -721,9 +721,14 @@ function renderPendingFiles() {
     `).join('');
 }
 
-window.handleFileSelected = async function(event, append = false) {
+window.handleFileSelected = function(event, append = false) {
     const files = [...event.target.files];
     event.target.value = '';
+    return addReceiptFiles(files, append);
+};
+
+// Общий вход для фото из галереи, камеры и скриншотов из буфера обмена
+async function addReceiptFiles(files, append = false) {
     if (files.length === 0) return;
     if (!append && !ensureCanStartAi()) return;
     if (!append) pendingFiles = [];
@@ -753,7 +758,53 @@ window.handleFileSelected = async function(event, append = false) {
     if (!append) document.getElementById('modal-prompt-note').value = '';
     renderPendingFiles();
     document.getElementById('receipt-modal').classList.remove('hidden');
+}
+
+function isReceiptModalOpen() {
+    return !document.getElementById('receipt-modal').classList.contains('hidden');
+}
+
+// Файлы из буфера получают понятные имена: в iOS скриншот приходит как безымянный image/png
+function clipboardFile(blob, index) {
+    const ext = blob.type === 'application/pdf' ? 'pdf' : (blob.type.split('/')[1] || 'png');
+    const name = blob.name && blob.name !== 'image.png' ? blob.name : `screenshot-${index + 1}.${ext}`;
+    return new File([blob], name, { type: blob.type });
+}
+
+// Кнопка «Вставить скриншот»: на iPhone Safari покажет системную плашку «Вставить»
+window.pasteReceiptFromClipboard = async function() {
+    if (!navigator.clipboard?.read) {
+        showToast('Браузер не даёт прочитать буфер — сохраните скриншот в Фото и выберите его через «Фото, галерея или PDF»', 'warning');
+        return;
+    }
+    let clipboardItems;
+    try {
+        clipboardItems = await navigator.clipboard.read();
+    } catch (err) {
+        if (err.name !== 'NotAllowedError') console.warn('Чтение буфера не удалось', err);
+        showToast('Не удалось прочитать буфер обмена. Разрешите вставку или выберите скриншот из галереи', 'warning');
+        return;
+    }
+    const files = [];
+    for (const item of clipboardItems) {
+        const type = item.types.find(t => t.startsWith('image/') || t === 'application/pdf');
+        if (type) files.push(clipboardFile(await item.getType(type), files.length));
+    }
+    if (files.length === 0) {
+        showToast('В буфере обмена нет изображения. Сделайте скриншот и нажмите «Скопировать»', 'warning');
+        return;
+    }
+    await addReceiptFiles(files, isReceiptModalOpen());
 };
+
+// Cmd+V / Ctrl+V с картинкой в буфере (и вставка в любое поле, если в буфере только изображение)
+document.addEventListener('paste', (e) => {
+    const files = [...(e.clipboardData?.files || [])].filter(f => f.type.startsWith('image/') || f.type === 'application/pdf');
+    if (files.length === 0 || !currentUser) return;
+    if (!document.getElementById('receipt-editor').classList.contains('hidden')) return;
+    e.preventDefault();
+    addReceiptFiles(files.map((f, i) => clipboardFile(f, i)), isReceiptModalOpen());
+});
 
 window.removePendingFile = function(idx) {
     pendingFiles.splice(idx, 1);
@@ -1220,6 +1271,9 @@ function filterItemsByPeriodGeneric(items, period) {
         if (period === 'today') {
             return rawDate === todayStr;
         }
+        if (period === 'yesterday') {
+            return rawDate === getYesterdayDateStr();
+        }
         const dow = now.getDay() || 7;
         const monday = new Date(now);
         monday.setDate(now.getDate() - dow + 1);
@@ -1257,8 +1311,39 @@ function filterItemsByPeriodGeneric(items, period) {
     });
 }
 
+// Раскрытые строки детализации (по ключу категории или магазина)
+const expandedBreakdownKeys = new Set();
+
+function receiptKeyOf(item) {
+    return item.receiptId || `legacy:${legacyReceiptKey(item)}`;
+}
+
+function renderBreakdownTransactions(items, amountInTarget, targetCurrency) {
+    const sorted = [...items].sort((a, b) =>
+        (b.receiptDate || '').localeCompare(a.receiptDate || '') || (b.createdAt || '').localeCompare(a.createdAt || ''));
+    return `
+        <div class="mt-2.5 space-y-1.5">
+            ${sorted.map(item => `
+                <button data-action="open-transaction" data-receipt-key="${escapeHtml(receiptKeyOf(item))}" class="w-full flex items-center justify-between gap-2 bg-slate-50 hover:bg-indigo-50 border border-slate-200/60 rounded-xl px-3 py-2 text-left transition">
+                    <div class="min-w-0">
+                        <p class="text-xs font-bold text-slate-800 truncate">${escapeHtml(item.name)}</p>
+                        <p class="text-[10px] font-semibold text-slate-400 truncate">${escapeHtml(formatDateReadable(item.receiptDate))} · ${escapeHtml(dashboardMode === 'category' ? (item.shop || 'Не указано') : (item.category || ''))}</p>
+                    </div>
+                    <div class="text-right shrink-0">
+                        <p class="text-xs font-extrabold text-slate-900">${formatMoney(amountInTarget(item))} ${escapeHtml(targetCurrency)}</p>
+                        ${item.currency !== targetCurrency ? `<p class="text-[10px] font-semibold text-slate-400">${formatMoney(item.originalPrice)} ${escapeHtml(item.currency)}</p>` : ''}
+                    </div>
+                </button>
+            `).join('')}
+        </div>
+    `;
+}
+
 window.renderDashboard = async function() {
-    const filteredByPeriod = filterItemsByPeriodGeneric(allItems, dashboardPeriod);
+    // «Валюта списания» — в какой валюте реально оплачена трата; пусто — все валюты
+    const chargeCurrency = document.getElementById('dashboard-charge-currency').value;
+    const filteredByPeriod = filterItemsByPeriodGeneric(allItems, dashboardPeriod)
+        .filter(item => !chargeCurrency || item.currency === chargeCurrency);
     const currencySelect = document.getElementById('dashboard-currency');
     let targetCurrency = currencySelect.value;
     const chartType = document.getElementById('chart-type').value;
@@ -1299,11 +1384,13 @@ window.renderDashboard = async function() {
     document.getElementById('total-count-badge').innerText = `Операций: ${filteredItems.length}`;
 
     let statsData = {};
+    const groupItems = {};
     filteredItems.forEach(item => {
         const key = dashboardMode === 'category'
             ? (userCategories.includes(item.category) ? item.category : 'Другое')
             : (item.shop || 'Не указано');
         statsData[key] = (statsData[key] || 0) + amountInTarget(item);
+        (groupItems[key] ||= []).push(item);
     });
 
     const sortedGroupKeys = Object.keys(statsData).filter(k => statsData[k] > 0).sort((a, b) => statsData[b] - statsData[a]);
@@ -1316,21 +1403,27 @@ window.renderDashboard = async function() {
             const val = statsData[key];
             const percent = totalInTarget > 0 ? Math.round((val / totalInTarget) * 100) : 0;
             const color = CHART_COLORS[idx % CHART_COLORS.length];
+            const expanded = expandedBreakdownKeys.has(key);
             return `
-                <div>
-                    <div class="flex justify-between items-center text-xs mb-1.5">
-                        <div class="flex items-center gap-2 font-bold text-slate-800">
-                            <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ${color}"></span>
-                            <span>${escapeHtml(key)}</span>
+                <div data-breakdown-key="${escapeHtml(key)}">
+                    <button data-action="toggle-breakdown" data-key="${escapeHtml(key)}" class="w-full text-left">
+                        <div class="flex justify-between items-center gap-2 text-xs mb-1.5">
+                            <div class="flex items-center gap-2 font-bold text-slate-800 min-w-0">
+                                <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ${color}"></span>
+                                <span class="truncate">${escapeHtml(key)}</span>
+                                <span class="text-[10px] font-semibold text-slate-400 shrink-0">${groupItems[key].length}</span>
+                            </div>
+                            <div class="text-right shrink-0">
+                                <span class="font-extrabold text-slate-900">${formatMoney(val)} ${targetCurrency}</span>
+                                <span class="text-[11px] font-semibold text-slate-400 ml-1">${percent}%</span>
+                                <i class="fa-solid fa-chevron-down text-[10px] text-slate-400 ml-1 transition-transform" style="transform: rotate(${expanded ? 180 : 0}deg)"></i>
+                            </div>
                         </div>
-                        <div class="text-right">
-                            <span class="font-extrabold text-slate-900">${formatMoney(val)} ${targetCurrency}</span>
-                            <span class="text-[11px] font-semibold text-slate-400 ml-1">${percent}%</span>
+                        <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                            <div class="h-full rounded-full transition-all duration-300" style="width: ${percent}%; background-color: ${color}"></div>
                         </div>
-                    </div>
-                    <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                        <div class="h-full rounded-full transition-all duration-300" style="width: ${percent}%; background-color: ${color}"></div>
-                    </div>
+                    </button>
+                    ${expanded ? renderBreakdownTransactions(groupItems[key], amountInTarget, targetCurrency) : ''}
                 </div>
             `;
         }).join('');
@@ -1359,7 +1452,20 @@ window.renderDashboard = async function() {
                 responsive: true,
                 maintainAspectRatio: false,
                 cutout: '68%',
-                plugins: { legend: { display: false } }
+                plugins: { legend: { display: false } },
+                // Нажатие на сектор раскрывает траты этой группы в детализации
+                onClick: (_event, elements) => {
+                    if (elements.length === 0 || sortedGroupKeys.length === 0) return;
+                    const key = sortedGroupKeys[elements[0].index];
+                    expandedBreakdownKeys.add(key);
+                    renderDashboard().then(() => {
+                        const row = [...document.querySelectorAll('[data-breakdown-key]')].find(el => el.dataset.breakdownKey === key);
+                        row?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    });
+                },
+                onHover: (event, elements) => {
+                    event.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+                }
             }
         });
     } else {
@@ -1572,7 +1678,7 @@ function renderList() {
         }
     });
 
-    countEl.innerText = `${receipts.length} чек(ов)`;
+    countEl.innerText = `чеков: ${receipts.length}`;
     const hiddenCount = Math.max(0, receipts.length - historyLimit);
     receipts = receipts.slice(0, historyLimit);
 
@@ -1863,6 +1969,13 @@ document.addEventListener('click', (e) => {
         toggleReceipt(el.dataset.index, el.dataset.key);
     } else if (action === 'edit-receipt') {
         openReceiptEditor(el.dataset.key);
+    } else if (action === 'toggle-breakdown') {
+        const key = el.dataset.key;
+        if (expandedBreakdownKeys.has(key)) expandedBreakdownKeys.delete(key);
+        else expandedBreakdownKeys.add(key);
+        renderDashboard();
+    } else if (action === 'open-transaction') {
+        openReceiptEditor(el.dataset.receiptKey);
     } else if (action === 'show-more') {
         historyLimit += HISTORY_PAGE_SIZE;
         renderList();
@@ -1895,7 +2008,7 @@ updateOnlineState();
 
 // ==================== ВОССТАНОВЛЕНИЕ НАСТРОЕК ИНТЕРФЕЙСА ====================
 function applySavedPrefs() {
-    [['receipt-currency', 'inputCurrency'], ['dashboard-currency', 'dashboardCurrency'], ['chart-type', 'chartType']].forEach(([id, key]) => {
+    [['receipt-currency', 'inputCurrency'], ['dashboard-currency', 'dashboardCurrency'], ['dashboard-charge-currency', 'chargeCurrency'], ['chart-type', 'chartType']].forEach(([id, key]) => {
         const select = document.getElementById(id);
         const saved = getPref(key, null);
         if (saved && [...select.options].some(o => o.value === saved)) select.value = saved;
@@ -1908,3 +2021,7 @@ function applySavedPrefs() {
 }
 
 applySavedPrefs();
+
+// Номер версии в шапке и на экране входа
+const appVersionText = `v${__APP_VERSION__}${__APP_COMMIT__ ? ` · ${__APP_COMMIT__}` : ''}`;
+document.querySelectorAll('.app-version').forEach(el => { el.textContent = appVersionText; });

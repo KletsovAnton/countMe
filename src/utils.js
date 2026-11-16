@@ -66,3 +66,9 @@ export function formatDuration(totalSeconds) {
 export function selectedKeys(available, deselected) {
     return new Set(available.filter(k => !deselected.has(k)));
 }
+
+// Вчерашняя локальная дата YYYY-MM-DD (через календарный день, а не минус 24 часа — иначе ошибка при переводе часов)
+export function getYesterdayDateStr(now = new Date()) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    return getTodayDateStr(d);
+}
